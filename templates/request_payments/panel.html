@@ -1,0 +1,24 @@
+{% load static %}
+<section id="panel-rp" class="card panel" style="display:none">
+  <div class="panel-top">
+    <button class="link" onclick="goHome()">← Back</button>
+    <div class="right">
+      <button class="btn" onclick="openCreate('rp')">+ New Request Payment</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <select id="rp-filter" onchange="renderList('rp')">
+      <option value="all">All</option>
+      <option value="weekly">Weekly</option>
+      <option value="monthly">Monthly</option>
+      <option value="yearly">Yearly</option>
+    </select>
+    <input type="date" id="rp-from" onchange="renderList('rp')">
+    <input type="date" id="rp-to" onchange="renderList('rp')">
+    <input placeholder="Search payee or No" id="rp-search" oninput="renderList('rp')">
+    <input placeholder="Search department" id="rp-dept-search" oninput="renderList('rp')">
+  </div>
+
+  <div id="rp-list-area"></div>
+</section>

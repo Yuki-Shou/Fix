@@ -1,0 +1,129 @@
+{% load static %}
+<!-- Request for Payment Form -->
+<section id="form-rp" class="card form-card" style="display:none">
+  <div class="panel-top">
+    <h3>Request For Payment</h3>
+    <button class="btn primary" onclick="closeForm()">Back</button>
+  </div>
+
+  <div class="form-body">
+    <div class="form-group">
+      <label>RP No.:</label>
+      <input type="text" id="rp-no" readonly>
+    </div>
+
+    <div class="form-group">
+      <label>Payee:</label>
+      <input type="text" id="rp-payee" required>
+    </div>
+
+    <div class="form-group">
+      <label>Date:</label>
+      <input type="date" id="rp-date" required>
+    </div>
+
+    <div class="form-group">
+      <label>TIN #:</label>
+      <input type="text" id="rp-tin">
+    </div>
+
+    <!-- VAT OPTION (MOVED TO TOP) -->
+    <div class="form-group">
+      <label><b>VAT</b></label>
+      <div class="checkbox-group">
+        <label><input type="radio" id="rp-vat" value="VAT"> VAT</label>
+        <label><input type="radio" id="rp-non-vat" value="NON-VAT"> NON-VAT</label>
+      </div>
+    </div>
+
+    <!-- ACTION REQUIRED -->
+    <div class="form-group">
+      <label><b>ACTION REQUIRED</b></label>
+      <div class="checkbox-group">
+        <label><input type="radio" name="rp-action" value="URGENT"> URGENT</label>
+        <label><input type="radio" name="rp-action" value="NON-URGENT"> NON-URGENT</label>
+      </div>
+    </div>
+
+    <!-- MODE OF PAYMENT -->
+    <div class="form-group">
+      <label><b>MODE OF PAYMENT</b></label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" class="rp-mode" value="CHECK"> CHECK</label>
+        <label><input type="checkbox" class="rp-mode" value="CASH"> CASH</label>
+        <label><input type="checkbox" class="rp-mode" value="BANK TRANSFER"> BANK TRANSFER</label>
+        <label><input type="checkbox" class="rp-mode" value="ONLINE"> ONLINE (CC, GCASH, PMY)</label>
+      </div>
+    </div>
+
+    <!-- PAYMENT FOR -->
+    <div class="form-group">
+      <label><b>PAYMENT FOR</b></label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" class="rp-payment-for" value="SUPPLIER"> SUPPLIER</label>
+        <label><input type="checkbox" class="rp-payment-for" value="MACHINERY"> MACHINERY</label>
+        <label><input type="checkbox" class="rp-payment-for" value="REPAIR & MAINTENANCE"> REPAIR & MAINTENANCE</label>
+        <label><input type="checkbox" class="rp-payment-for" value="UTILITY"> UTILITY</label>
+        <label><input type="checkbox" class="rp-payment-for" value="OTHERS"> OTHERS</label>
+      </div>
+      <input type="text" id="rp-payment-for-other" placeholder="Specify if OTHERS" style="margin-top:8px;">
+    </div>
+
+    <div class="form-group">
+      <label>Amount:</label>
+      <input type="number" id="rp-amount" step="0.01" required>
+    </div>
+
+    <div class="form-group">
+      <label>Remarks:</label>
+      <textarea id="rp-remarks" rows="3"></textarea>
+    </div>
+
+    <!-- INVOICE UPLOAD (stores image but NOT included in PDF) -->
+    <div class="form-group">
+      <label><b>Invoice (optional)</b></label>
+      <div id="rp-invoice-preview" style="margin-bottom:8px;">
+        <img id="rp-invoice-img" alt="Invoice preview" style="max-width:360px; max-height:260px; border:1px solid #ccc; display:none;">
+      </div>
+      <input type="file" id="rp-invoice-file" accept="image/*" onchange="previewRPInvoice()">
+      <button type="button" class="btn secondary" onclick="clearRPInvoice()" style="margin-left:8px;">Clear</button>
+      <div class="small" style="margin-top:6px;">Max 5MB. Image is stored with the RFP but not embedded into the generated PDF.</div>
+    </div>
+
+    <div class="form-group">
+      <label>Requested By:</label>
+      <input type="text" id="rp-requested-by">
+    </div>
+
+    <div class="form-group">
+      <label>Checked By:</label>
+      <input type="text" id="rp-checked-by">
+    </div>
+
+    <div class="form-group">
+      <label>Recommending Approval:</label>
+      <input type="text" id="rp-recommend-approval">
+    </div>
+
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveRP()">Save</button>
+      <button class="btn secondary" onclick="generateRPPdfFromForm()">Preview PDF</button>
+      <button class="btn secondary" onclick="closeForm()">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- Invoice preview modal (hidden) -->
+<div id="invoice-modal" style="display:none;position:fixed;z-index:9999;inset:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;padding:24px;">
+  <div style="max-width:1000px;width:100%;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+    <div style="display:flex;justify-content:flex-end;padding:8px;background:#f6f6f6;">
+      <button onclick="closeInvoiceModal()" class="btn">Close</button>
+    </div>
+    <div style="padding:12px; text-align:center;">
+      <img id="invoice-modal-img" src="" alt="Invoice" style="max-width:100%; max-height:80vh; border:1px solid #ddd;">
+      <div style="margin-top:8px;">
+        <a id="invoice-modal-download" href="#" target="_blank" class="btn">Open / Download</a>
+      </div>
+    </div>
+  </div>
+</div>

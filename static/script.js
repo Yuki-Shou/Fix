@@ -1,0 +1,2742 @@
+const storage = window.localStorage;
+const KEYS = {
+  PO_NEXT: 'hd_po_next',
+  RP_NEXT: 'hd_rp_next',
+  PR_NEXT: 'hd_pr_next',
+  GRN_NEXT: 'hd_grn_next',
+};
+
+// Keys for storing lists and id counters
+const DATA_KEYS = {
+  PO_LIST: 'hd_po_data',
+  RP_LIST: 'hd_rp_data',
+  PR_LIST: 'hd_pr_data',
+  GRN_LIST: 'hd_grn_data',
+  PO_ID: 'hd_po_id_next',
+  RP_ID: 'hd_rp_id_next',
+  PR_ID: 'hd_pr_id_next'
+ ,
+  GRN_ID: 'hd_grn_id_next'
+};
+
+// Configuration toggle: control automatic draft RP creation
+// Set to `true` to allow the app to auto-create draft RPs from PO/GRN actions.
+const AUTO_CREATE_DRAFT_RP = true;
+// Ensure initial storage values
+function ensureStorageInitialized() {
+  if (!storage.getItem(KEYS.PO_NEXT)) storage.setItem(KEYS.PO_NEXT, 'PO-0001');
+  if (!storage.getItem(KEYS.RP_NEXT)) storage.setItem(KEYS.RP_NEXT, 'RP-0001');
+  if (!storage.getItem(KEYS.PR_NEXT)) storage.setItem(KEYS.PR_NEXT, 'PR-0001');
+  if (!storage.getItem(KEYS.GRN_NEXT)) storage.setItem(KEYS.GRN_NEXT, 'GRN-0001');
+
+  if (!storage.getItem(DATA_KEYS.PO_LIST)) storage.setItem(DATA_KEYS.PO_LIST, JSON.stringify([]));
+  if (!storage.getItem(DATA_KEYS.RP_LIST)) storage.setItem(DATA_KEYS.RP_LIST, JSON.stringify([]));
+  if (!storage.getItem(DATA_KEYS.PR_LIST)) storage.setItem(DATA_KEYS.PR_LIST, JSON.stringify([]));
+  if (!storage.getItem(DATA_KEYS.GRN_LIST)) storage.setItem(DATA_KEYS.GRN_LIST, JSON.stringify([]));
+
+  if (!storage.getItem(DATA_KEYS.PO_ID)) storage.setItem(DATA_KEYS.PO_ID, '1');
+  if (!storage.getItem(DATA_KEYS.RP_ID)) storage.setItem(DATA_KEYS.RP_ID, '1');
+  if (!storage.getItem(DATA_KEYS.PR_ID)) storage.setItem(DATA_KEYS.PR_ID, '1');
+  if (!storage.getItem(DATA_KEYS.GRN_ID)) storage.setItem(DATA_KEYS.GRN_ID, '1');
+}
+
+// utility: map mod to data key names
+function listKey(mod){
+  if(mod === 'po') return DATA_KEYS.PO_LIST;
+  if(mod === 'rp') return DATA_KEYS.RP_LIST;
+  if(mod === 'pr') return DATA_KEYS.PR_LIST;
+  if(mod === 'grn') return DATA_KEYS.GRN_LIST;
+}
+function idKey(mod){
+  if(mod === 'po') return DATA_KEYS.PO_ID;
+  if(mod === 'rp') return DATA_KEYS.RP_ID;
+  if(mod === 'pr') return DATA_KEYS.PR_ID;
+  if(mod === 'grn') return DATA_KEYS.GRN_ID;
+}
+
+function readList(mod){
+  const key = listKey(mod);
+  try{
+    const raw = storage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return []; }
+}
+
+function writeList(mod, arr){
+  storage.setItem(listKey(mod), JSON.stringify(arr));
+}
+
+function generateId(mod){
+  const key = idKey(mod);
+  const cur = parseInt(storage.getItem(key) || '1', 10);
+  storage.setItem(key, String(cur + 1));
+  return cur; // return previous as id
+}
+
+function findById(mod, id){
+  const list = readList(mod);
+  return list.find(it => Number(it.id) === Number(id)) || null;
+}
+
+// API helpers — talk to Django endpoints; fall back to localStorage on failure
+function apiUrl(mod){
+  if (mod === 'po') return '/api/purchase_orders/';
+  if (mod === 'rp') return '/api/request_payments/';
+  if (mod === 'pr') return '/api/purchase_requisitions/';
+  if (mod === 'grn') return '/api/goods_received/';
+  return '/api/';
+}
+
+async function fetchListServer(mod){
+  try{
+    const res = await fetch(apiUrl(mod), { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }catch(err){
+    console.warn('fetchListServer failed for', mod, err);
+    return null; // caller will handle fallback
+  }
+}
+
+async function getServer(mod, id){
+  try{
+    const res = await fetch(apiUrl(mod) + id + '/', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  }catch(err){
+    console.warn('getServer failed for', mod, id, err);
+    return null;
+  }
+}
+
+async function createServer(mod, payload, files){
+  const url = apiUrl(mod);
+  try{
+    let opts = { method: 'POST', credentials: 'same-origin' };
+    if (files) {
+      // payload is expected to be plain object; build FormData
+      const fd = new FormData();
+      for (const k in payload) {
+        if (payload[k] !== undefined && payload[k] !== null) fd.append(k, payload[k]);
+      }
+      // append invoice file if provided
+      if (files.invoice) fd.append('invoice', files.invoice, files.invoice.name);
+      opts.body = fd;
+    } else {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(payload);
+    }
+
+    if (mod === 'rp') {
+      list = (list || []).map(ensureRPComputedFields);
+    }
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  }catch(err){
+    console.warn('createServer failed for', mod, err);
+    return null;
+  }
+}
+
+async function deleteServer(mod, id){
+  try{
+    const res = await fetch(apiUrl(mod) + id + '/', { method: 'DELETE', credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return true;
+  }catch(err){
+    console.warn('deleteServer failed for', mod, id, err);
+    return false;
+  }
+}
+
+// initialize now
+ensureStorageInitialized();
+
+// Seed a few example records so app is usable without a backend (only if lists empty)
+// Note: example seeder removed per user request to avoid auto-populating data.
+
+// ADD global editing state
+let editingPOId = null;
+let editingRPId = null;
+let editingPRId = null;
+let editingGRNId = null;
+let lastAutoSelectedPOId = null;
+
+// store invoice image dataURL for RP (not shown in PDF)
+// rpInvoiceData = data:... (sent to server). rpInvoicePreviewUrl used only for <img> preview (object URL).
+let rpInvoiceData = null;
+let rpInvoicePreviewUrl = null;
+
+// helper: read File -> dataURL (promise)
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve(null);
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.onload = () => resolve(reader.result); // data:<mime>;base64,...
+    reader.readAsDataURL(file);
+  });
+}
+
+function ensureRPComputedFields(rp) {
+  if (!rp || typeof rp !== 'object') return rp;
+  if (!rp.invoice_image && rp.invoice_url) {
+    rp.invoice_image = rp.invoice_url;
+  }
+  if (!rp.invoice_filename && typeof rp.invoice_url === 'string') {
+    try {
+      const parts = rp.invoice_url.split('/');
+      rp.invoice_filename = parts.pop() || rp.invoice_filename;
+    } catch (err) {
+      // ignore parsing issues
+    }
+  }
+  if (!rp.status) {
+    rp.status = (rp.invoice_image || rp.invoice_url) ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+  }
+  return rp;
+}
+
+function resolvePONumber(poRef, poCache) {
+  if (poRef === undefined || poRef === null || poRef === '') return '';
+  if (typeof poRef === 'object') {
+    if (poRef.no) return poRef.no;
+    if (poRef.po_no) return poRef.po_no;
+    if (poRef.reference_no) return poRef.reference_no;
+    if (poRef.id !== undefined && poRef.id !== null) {
+      return resolvePONumber(poRef.id, poCache);
+    }
+  }
+  const cache = Array.isArray(poCache) ? poCache : (readList('po') || []);
+  const match = cache.find(po => {
+    return String(po.id) === String(poRef) ||
+      (po.local_id && String(po.local_id) === String(poRef)) ||
+      (po.server_id && String(po.server_id) === String(poRef));
+  });
+  if (match) return match.no || '';
+  return String(poRef);
+}
+
+// Wait for images and fonts used inside an element to load before rendering PDF
+async function waitForResources(el, timeout = 5000) {
+  if (!el) return true;
+  // images
+  const imgs = Array.from(el.querySelectorAll('img'));
+  const imgPromises = imgs.map(img => new Promise(resolve => {
+    // consider already-loaded images
+    if (img.complete && img.naturalWidth !== 0) return resolve(true);
+    let resolved = false;
+    const onDone = ok => { if (resolved) return; resolved = true; resolve(ok); };
+    const t = setTimeout(() => onDone(false), timeout);
+    img.addEventListener('load', () => { clearTimeout(t); onDone(true); }, { once: true });
+    img.addEventListener('error', () => { clearTimeout(t); onDone(false); }, { once: true });
+  }));
+
+  // fonts (modern browsers expose document.fonts.ready)
+  const fontsPromise = (document.fonts && document.fonts.ready) ? document.fonts.ready.then(() => true).catch(() => true) : Promise.resolve(true);
+
+  const results = await Promise.all([...imgPromises, fontsPromise]);
+  return results.every(Boolean);
+}
+
+// Try to fetch an item from the server using its server ID when available, otherwise fall back to local cache
+async function fetchFromServerOrCache(mod, id) {
+  // look up local cache first
+  const local = findById(mod, id);
+  if (local && local.server_id) {
+    const server = await getServer(mod, local.server_id);
+    if (server) {
+      // preserve local identity so UI actions that expect local id still work
+      server.local_id = local.local_id || local.id;
+      server.server_id = local.server_id;
+      server.id = local.id;
+      return mod === 'rp' ? ensureRPComputedFields(server) : server;
+    }
+    return mod === 'rp' ? ensureRPComputedFields(local) : local;
+  }
+
+  // if local not found, try server directly (id might be a server id)
+  const serverDirect = await getServer(mod, id);
+  if (serverDirect) {
+    // attach server id and leave id as-is (server id)
+    serverDirect.server_id = serverDirect.id;
+    return mod === 'rp' ? ensureRPComputedFields(serverDirect) : serverDirect;
+  }
+
+  // fallback to local by id
+  const fallback = local || null;
+  return mod === 'rp' ? ensureRPComputedFields(fallback) : fallback;
+}
+
+// preview handler for invoice file input (call from onchange)
+async function previewRPInvoice() {
+  const fileInput = document.getElementById('rp-invoice-file');
+  const file = fileInput?.files?.[0];
+  if (!file) return;
+
+  // size limit 5MB
+  if (file.size > 5 * 1024 * 1024) {
+    alert('Invoice file must be less than 5MB');
+    fileInput.value = '';
+    return;
+  }
+
+  try {
+    // create preview object URL for fast display
+    if (rpInvoicePreviewUrl) {
+      try { URL.revokeObjectURL(rpInvoicePreviewUrl); } catch(e) {}
+      rpInvoicePreviewUrl = null;
+    }
+    rpInvoicePreviewUrl = URL.createObjectURL(file);
+    const img = document.getElementById('rp-invoice-img');
+    if (img) {
+      img.src = rpInvoicePreviewUrl;
+      img.style.display = 'block';
+    }
+
+    // also read full data URL for sending to server
+    rpInvoiceData = await fileToDataURL(file); // data:<mime>;base64,...
+  } catch (err) {
+    console.error('previewRPInvoice error:', err);
+    alert('Unable to read invoice file');
+    // cleanup on error
+    clearRPInvoice();
+  }
+}
+
+function clearRPInvoice() {
+  // clear data that will be sent
+  rpInvoiceData = null;
+
+  // clear preview object URL
+  if (rpInvoicePreviewUrl) {
+    try { URL.revokeObjectURL(rpInvoicePreviewUrl); } catch(e) {}
+    rpInvoicePreviewUrl = null;
+  }
+
+  const fileInput = document.getElementById('rp-invoice-file');
+  if (fileInput) fileInput.value = '';
+
+  const img = document.getElementById('rp-invoice-img');
+  if (img) {
+    img.src = '';
+    img.style.display = 'none';
+  }
+}
+
+/* -------------------------
+   Navigation helpers
+   ------------------------- */
+function hideAll() {
+  document.querySelectorAll('.panel, .form-card, #home').forEach(el => el.style.display = 'none');
+}
+function showModule(mod) {
+  hideAll();
+  if (mod === 'po') { document.getElementById('panel-po').style.display = 'block'; renderList('po'); }
+  if (mod === 'rp') { document.getElementById('panel-rp').style.display = 'block'; renderList('rp'); }
+  if (mod === 'pr') { document.getElementById('panel-pr').style.display = 'block'; renderList('pr'); }
+  if (mod === 'grn') { document.getElementById('panel-grn').style.display = 'block'; renderList('grn'); }
+}
+function goHome() {
+  hideAll();
+  document.getElementById('home').style.display = 'block';
+}
+function openCreate(mod) {
+  hideAll();
+  // clear editing state when creating new
+  editingPOId = null;
+  editingRPId = null;
+  editingPRId = null;
+  editingGRNId = null;
+
+  if (mod === 'po') { document.getElementById('form-po').style.display = 'block'; poPrepare(); }
+  if (mod === 'rp') { document.getElementById('form-rp').style.display = 'block'; rpPrepare(); }
+  if (mod === 'pr') { document.getElementById('form-pr').style.display = 'block'; prPrepare(); }
+  if (mod === 'grn') { document.getElementById('form-grn').style.display = 'block'; grnPrepare(); }
+}
+
+function closeForm() {
+  document.getElementById('form-po').style.display = 'none';
+  document.getElementById('form-rp').style.display = 'none';
+  document.getElementById('form-pr').style.display = 'none';
+  document.getElementById('form-grn').style.display = 'none';
+  // clear editing state on close
+  editingPOId = null;
+  editingRPId = null;
+  editingPRId = null;
+  editingGRNId = null;
+  const last = storage.getItem('hd_last_module');
+  if (last) showModule(last);
+  else goHome();
+}
+
+/* -------------------------
+   Utility: increment number
+   ------------------------- */
+function incrementSerial(current) {
+  const parts = current.split('-');
+  const last = parts.pop();
+  const num = parseInt(last, 10) + 1;
+  const padded = String(num).padStart(last.length, '0');
+  parts.push(padded);
+  return parts.join('-');
+}
+
+/* -------------------------
+   Logo helper
+   ------------------------- */
+function getLogoDataURL(callback) {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.src = 'logo.png';
+  img.onload = function () {
+    const canvas = document.createElement('canvas');
+    const maxW = 200;
+    const ratio = img.width > maxW ? (maxW / img.width) : 1;
+    canvas.width = img.width * ratio;
+    canvas.height = img.height * ratio;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    try {
+      const dataURL = canvas.toDataURL('image/jpeg', 0.9);
+      callback(dataURL);
+    } catch (e) {
+      callback(null);
+    }
+  };
+  img.onerror = function () { callback(null); };
+}
+
+/* -------------------------
+   PURCHASE ORDER (PO)
+   ------------------------- */
+function poPrepare() {
+  const next = storage.getItem(KEYS.PO_NEXT);
+  document.getElementById('po-no').value = next;
+  document.getElementById('po-date').valueAsDate = new Date();
+  document.getElementById('po-dept').value = '';
+  document.getElementById('po-supplier').value = '';
+  document.getElementById('po-tin').value = '';
+  document.getElementById('po-address').value = '';
+  document.getElementById('po-contact-person').value = '';
+  document.getElementById('po-contact-number').value = '';
+  document.getElementById('po-prepared-by').value = '';
+  document.getElementById('po-checked-by').value = '';
+  document.getElementById('po-approved-by').value = '';
+  document.getElementById('po-items').innerHTML = '';
+  poAddItem();
+  updatePOTotal();
+  populatePRDropdownInPOForm();
+  storage.setItem('hd_last_module', 'po');
+}
+
+function populatePRDropdownInPOForm() {
+  const sel = document.getElementById('po-linked-pr');
+  if (!sel) return;
+  // clear and add default
+  sel.innerHTML = '<option value="">-- Select PR --</option>';
+  const prs = readList('pr') || [];
+  prs.forEach(p => {
+    const opt = document.createElement('option');
+    // option value is local id (so other UI functions can find the PR by local id)
+    opt.value = p.id;
+    // keep server id (if present) handy so we can submit server PR id when saving
+    if (p.server_id) opt.dataset.serverId = String(p.server_id);
+    opt.text = p.no || ('PR-' + p.id);
+    sel.appendChild(opt);
+  });
+}
+
+function poLinkedPRChanged() {
+  const prId = document.getElementById('po-linked-pr')?.value;
+  if (!prId) return;
+  const pr = findById('pr', prId);
+  if (!pr) return;
+  // auto-fill items table from PR
+  const tbody = document.getElementById('po-items');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  (pr.items || []).forEach(it => {
+    // map PR items ({stk, qty, unit, desc}) to PO items (qty, unit, description, unit_cost)
+    poAddItem(it.qty || 0, it.unit || '', it.desc || it.description || '', 0, '');
+  });
+  updatePOTotal();
+  // Cascade: if there are existing POs linked to this PR, auto-select the first for GRN
+  const pos = readList('po') || [];
+  // find PO linked either by local PR id or by PR's server_id (covers both cached and server-synced cases)
+  const linked = pos.find(p => String(p.linked_pr) === String(prId) || (pr && pr.server_id && String(p.linked_pr) === String(pr.server_id)));
+  if (linked) {
+    lastAutoSelectedPOId = linked.id;
+    const grnSel = document.getElementById('grn-linked-po');
+    if (grnSel) {
+      // ensure grn select contains this PO
+      if (!Array.from(grnSel.options).some(o => String(o.value) === String(linked.id))) {
+        const opt = document.createElement('option'); opt.value = linked.id; opt.text = linked.no || ('PO-'+linked.id); grnSel.appendChild(opt);
+      }
+      grnSel.value = linked.id;
+      // fill GRN items if form visible
+      grnLinkedPOChanged();
+    }
+  }
+}
+
+function poAddItem(q=1, unit='pcs', desc='', cost=0, delDate='') {
+  const tbody = document.getElementById('po-items');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="po-qty" type="number" min="0" value="${q}" oninput="updatePOTotal()"></td>
+    <td><input class="po-unit" value="${unit}"></td>
+    <td><input class="po-desc" value="${desc}"></td>
+    <td><input class="po-cost" type="number" step="0.01" value="${cost.toFixed(2)}" oninput="updatePOTotal()"></td>
+    <td class="po-sub">₱ 0.00</td>
+    <td><input class="po-del-date" type="date" value="${delDate}"></td>
+    <td><button class="btn secondary" onclick="this.closest('tr').remove(); updatePOTotal()">Remove</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function updatePOTotal() {
+  const rows = document.querySelectorAll('#po-items tr');
+  let total = 0;
+  rows.forEach(r => {
+    const qty = parseFloat(r.querySelector('.po-qty').value || 0);
+    const cost = parseFloat(r.querySelector('.po-cost').value || 0);
+    const sub = qty * cost;
+    total += sub;
+    r.querySelector('.po-sub').innerText = '₱ ' + sub.toFixed(2);
+  });
+  document.getElementById('po-total').innerText = '₱ ' + total.toFixed(2);
+}
+
+async function savePO() {
+  const no = document.getElementById('po-no').value;
+  const date = document.getElementById('po-date').value || new Date().toISOString().slice(0,10);
+  const dept = document.getElementById('po-dept').value;
+  const supplier = document.getElementById('po-supplier').value;
+  const tin = document.getElementById('po-tin').value;
+  const address = document.getElementById('po-address').value;
+  const contact_person = document.getElementById('po-contact-person').value;
+  const contact_number = document.getElementById('po-contact-number').value;
+  const prepared_by = document.getElementById('po-prepared-by').value;
+  const checked_by = document.getElementById('po-checked-by').value;
+  const approved_by = document.getElementById('po-approved-by').value;
+
+  // FIXED: Collect items with correct field names matching database schema
+  const items = [];
+  document.querySelectorAll('#po-items tr').forEach(row => {
+    const qty = parseFloat(row.querySelector('.po-qty').value || 0);
+    const unit = row.querySelector('.po-unit').value || '';
+    const description = row.querySelector('.po-desc').value || '';
+    const unit_cost = parseFloat(row.querySelector('.po-cost').value || 0);
+    const del_date = row.querySelector('.po-del-date').value || '';
+    const total = qty * unit_cost;
+    
+    items.push({ qty, unit, description, unit_cost, total, del_date });
+  });
+
+  const total = items.reduce((sum, item) => sum + item.total, 0);
+
+  const po = {
+    no, date, dept, supplier, tin, address, 
+    contact_person, contact_number, total,
+    prepared_by, checked_by, approved_by,
+    // prefer sending the server PR id (if option has dataset.serverId) so server links correctly
+    linked_pr: (() => {
+      const sel = document.getElementById('po-linked-pr');
+      if (!sel) return null;
+      const opt = sel.options[sel.selectedIndex];
+      if (!opt) return null;
+      return opt.dataset && opt.dataset.serverId ? opt.dataset.serverId : (sel.value || null);
+    })(),
+    items
+  };
+
+  try {
+    // If editing an existing local item that has a server_id, attempt PATCH/update
+    let poList = readList('po');
+    if (editingPOId) {
+      const existingIdx = poList.findIndex(it => Number(it.id) === Number(editingPOId));
+      const existing = existingIdx !== -1 ? poList[existingIdx] : null;
+      if (existing && existing.server_id) {
+        // try to update on server first
+        const serverResp = await updateServer('po', existing.server_id, po, null);
+        if (serverResp && (serverResp.no || serverResp.id)) {
+          // update local cache with server response but preserve local id
+          const saved = serverResp;
+          const localId = existing.local_id || existing.id;
+          saved.local_id = localId;
+          saved.id = localId;
+          saved.server_id = existing.server_id;
+          // replace existing
+          if (existingIdx !== -1) poList.splice(existingIdx, 1, saved);
+          else poList.push(saved);
+          writeList('po', poList);
+          editingPOId = null;
+          renderList('po');
+          alert('Purchase Order updated on server and cached locally.');
+          closeForm();
+          return;
+        }
+        // if server update failed (null), save the edit locally and mark pending sync
+        po.local_id = existing.local_id || existing.id;
+        po.id = existing.id;
+        po.server_id = existing.server_id;
+        po._pending_sync = true;
+        if (existingIdx !== -1) poList.splice(existingIdx, 1, po);
+        else poList.push(po);
+        writeList('po', poList);
+        editingPOId = null;
+        renderList('po');
+        alert('Purchase Order updated locally (pending server sync).');
+        closeForm();
+        return;
+      }
+    }
+
+    // try saving to server for new POs (or when no server_id present)
+    const serverResp = await createServer('po', po, null);
+    if (serverResp && (serverResp.no || serverResp.id)) {
+      // server returned created object
+      const saved = serverResp;
+      // remove existing editing entry if present
+      if (editingPOId) {
+        const idx = poList.findIndex(it => Number(it.id) === Number(editingPOId));
+        if (idx !== -1) poList.splice(idx,1);
+        editingPOId = null;
+      }
+      const localId = generateId('po');
+      // keep server id in a property `server_id` to avoid id collisions
+      saved.local_id = localId;
+      saved.id = localId;
+      saved.server_id = serverResp.id || serverResp.server_id || null;
+      poList.push(saved);
+      writeList('po', poList);
+      // increment serial
+      const cur = storage.getItem(KEYS.PO_NEXT);
+      storage.setItem(KEYS.PO_NEXT, incrementSerial(cur));
+      renderList('po');
+      alert('Purchase Order saved to server and cached locally.');
+      closeForm();
+      return;
+    }
+
+    // fallback: save locally
+    // reuse `poList` variable declared above to avoid redeclaration errors
+    if (editingPOId) {
+      const idx = poList.findIndex(it => Number(it.id) === Number(editingPOId));
+      if (idx === -1) throw new Error('PO not found');
+      po.id = editingPOId;
+      poList[idx] = po;
+      writeList('po', poList);
+      editingPOId = null;
+      renderList('po');
+      alert('Purchase Order updated locally.');
+      closeForm();
+      return;
+    }
+    po.id = generateId('po');
+    poList.push(po);
+    writeList('po', poList);
+    const cur2 = storage.getItem(KEYS.PO_NEXT);
+    storage.setItem(KEYS.PO_NEXT, incrementSerial(cur2));
+    renderList('po');
+    alert('Purchase Order saved locally!');
+    closeForm();
+  } catch (err) {
+    console.error('Error saving PO:', err);
+    alert('Error saving PO. See console for details.');
+  }
+}
+
+// ...existing code...
+
+// Edit Purchase Order: load PO into the form for editing
+async function editPO(id) {
+  try {
+    editingPOId = id;
+    // IMPORTANT: Set hd_last_module so closeForm() knows to return to PO list
+    storage.setItem('hd_last_module', 'po');
+    // prefer server record, otherwise cached local
+    let po = await fetchFromServerOrCache('po', id);
+    if (!po) po = findById('po', id);
+
+    // populate form fields
+    document.getElementById("po-no").value = po.no || '';
+    document.getElementById("po-date").value = po.date || '';
+    document.getElementById("po-dept").value = po.dept || '';
+    document.getElementById("po-supplier").value = po.supplier || '';
+    document.getElementById("po-tin").value = po.tin || '';
+    document.getElementById("po-address").value = po.address || '';
+    document.getElementById("po-contact-person").value = po.contact_person || '';
+    document.getElementById("po-contact-number").value = po.contact_number || '';
+    document.getElementById("po-prepared-by").value = po.prepared_by || '';
+    document.getElementById("po-checked-by").value = po.checked_by || '';
+    document.getElementById("po-approved-by").value = po.approved_by || '';
+
+    // populate PR dropdown and items: clear and re-create rows
+    populatePRDropdownInPOForm();
+    const itemsEl = document.getElementById("po-items");
+    if (itemsEl) itemsEl.innerHTML = '';
+    if (Array.isArray(po.items) && po.items.length) {
+      po.items.forEach(it => {
+        // poAddItem(q, unit, desc, cost, delDate)
+        poAddItem(it.qty || 0, it.unit || '', it.description || it.desc || '', Number(it.unit_cost || 0), it.del_date || '');
+      });
+    } else {
+      poAddItem();
+    }
+    // restore linked PR selection (if present)
+    const sel = document.getElementById('po-linked-pr');
+    if (sel && po.linked_pr) {
+      // linked_pr may be local id, server id, or object. Try to select appropriately.
+      const linked = po.linked_pr;
+      // if an option exists with value === linked -> select it
+      let opt = Array.from(sel.options).find(o => String(o.value) === String(linked));
+      if (!opt) {
+        // maybe linked is a server id; find option with matching data-server-id
+        opt = Array.from(sel.options).find(o => o.dataset && String(o.dataset.serverId) === String(linked));
+      }
+      if (opt) {
+        sel.value = opt.value;
+      } else {
+        // not found in local options; create a placeholder so the dropdown shows the linked PR
+        const created = document.createElement('option');
+        created.value = String(linked);
+        if (typeof linked === 'object' && linked.id) created.dataset.serverId = String(linked.id);
+        else created.dataset.serverId = String(linked);
+        created.text = (typeof linked === 'object' && linked.no) ? linked.no : ('PR-' + String(linked));
+        sel.appendChild(created);
+        sel.value = created.value;
+      }
+    }
+
+    updatePOTotal();
+    hideAll();
+    const f = document.getElementById('form-po');
+    if (f) f.style.display = 'block';
+  } catch (err) {
+    console.error('editPO error:', err);
+    alert('Error loading Purchase Order: ' + (err.message || err));
+    editingPOId = null;
+  }
+}
+
+// Delete Purchase Order
+async function deletePO(id) {
+  if (!confirm('Delete this Purchase Order?')) return;
+  try {
+    // try server delete using server_id if cached; ignore failure and still remove local cache
+    const list = readList('po');
+    const idx = list.findIndex(it => Number(it.id) === Number(id));
+    if (idx === -1) { alert('PO not found'); return; }
+    const item = list[idx];
+    try {
+      if (item && item.server_id) await deleteServer('po', item.server_id);
+      else await deleteServer('po', id);
+    } catch (e) {
+      console.warn('Server delete failed, removing local cache anyway', e);
+    }
+    list.splice(idx,1);
+    writeList('po', list);
+    alert('Deleted successfully');
+    renderList('po');
+  } catch (err) {
+    console.error('deletePO error:', err);
+    alert('Error deleting Purchase Order');
+  }
+}
+
+
+// ===== PURCHASE ORDER - HTML2PDF =====
+function generatePOPdfFromForm() {
+  const print = document.getElementById("print-po");
+  if (!print) return;
+
+  // fill template values
+  document.getElementById("p_po_no").textContent = document.getElementById("po-no").value || '';
+  document.getElementById("p_po_date").textContent = document.getElementById("po-date").value || '';
+  document.getElementById("p_po_dept").textContent = document.getElementById("po-dept").value || '';
+  document.getElementById("p_po_supplier").textContent = document.getElementById("po-supplier").value || '';
+  document.getElementById("p_po_tin").textContent = document.getElementById("po-tin").value || '';
+  document.getElementById("p_po_address").textContent = document.getElementById("po-address").value || '';
+  document.getElementById("p_po_contact_person").textContent = document.getElementById("po-contact-person").value || '';
+  document.getElementById("p_po_contact_number").textContent = document.getElementById("po-contact-number").value || '';
+
+  // signature placeholders: show names on the print template
+  document.getElementById('p_po_prepared').textContent = document.getElementById('po-prepared-by')?.value || '';
+  document.getElementById('p_po_checked').textContent = document.getElementById('po-checked-by')?.value || '';
+  document.getElementById('p_po_approved').textContent = document.getElementById('po-approved-by')?.value || '';
+
+  // populate rows
+  const tbody = document.getElementById("p_po_items");
+  tbody.innerHTML = "";
+  let total = 0;
+
+  const rows = document.querySelectorAll("#po-items tr");
+  let stk = 1;
+  rows.forEach((row) => {
+    const qty = row.querySelector(".po-qty")?.value || '0';
+    const unit = row.querySelector(".po-unit")?.value || '';
+    const desc = row.querySelector(".po-desc")?.value || '';
+    const cost = parseFloat(row.querySelector(".po-cost")?.value || 0);
+    const delDate = row.querySelector(".po-del-date")?.value || '';
+    const sub = parseFloat(qty) * cost;
+    
+    // Only add rows with data (not empty rows)
+    if (qty || desc || cost) {
+      total += sub;
+      const tr = document.createElement('tr');
+      tr.style.height = '16px';
+      tr.innerHTML = `
+        <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${stk}</td>
+        <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${qty}</td>
+        <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${unit}</td>
+        <td style="padding:2px 4px; font-size:8.5px; border:1px solid #000;">${desc}</td>
+        <td style="padding:2px 4px; text-align:right; font-size:8.5px; border:1px solid #000;">₱ ${cost.toFixed(2)}</td>
+        <td style="padding:2px 4px; text-align:right; font-size:8.5px; border:1px solid #000;">₱ ${sub.toFixed(2)}</td>
+        <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${delDate}</td>
+      `;
+      tbody.appendChild(tr);
+      stk++;
+    }
+  });
+
+  // Add empty rows with light borders
+  const extraRows = 8;
+  for (let i = 0; i < extraRows; i++) {
+    const tr = document.createElement('tr');
+    tr.style.height = '16px';
+    tr.innerHTML = `
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+      <td style="padding:2px; border-bottom:0.5px solid #ddd;"></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById("p_po_total").textContent = `₱ ${total.toFixed(2)}`;
+
+  // force narrower width for short bondpaper and render
+  const prevDisplay = print.style.display;
+  print.style.width = '7.4in';
+  print.style.maxWidth = '7.4in';
+  print.style.boxSizing = 'border-box';
+  print.style.background = '#ffffff';
+  print.style.display = 'block';
+
+  (async () => {
+    try {
+      await waitForResources(print, 5000);
+      const opt = {
+        margin: 8,
+        filename: (document.getElementById("po-no").value || 'PO') + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }
+      };
+      await html2pdf().set(opt).from(print).save();
+    } catch (err) {
+      console.error('PDF Error:', err);
+      alert('PDF Error: ' + (err && err.message ? err.message : err));
+    } finally {
+      print.style.display = prevDisplay;
+    }
+  })();
+}
+// ===== REQUEST PAYMENT (RP) - HTML2PDF =====
+// function generateRPPdfFromForm() {
+//   const print = document.getElementById("print-rp");
+//   if (!print) { alert('Print template not found'); return; }
+
+//   const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || ''; };
+
+//   // Basic info
+//   setText('p_rp_no', document.getElementById("rp-no")?.value || '');
+//   setText('p_rp_date', document.getElementById("rp-date")?.value || '');
+//   setText('p_rp_payee', document.getElementById("rp-payee")?.value || '');
+//   setText('p_rp_tin', document.getElementById("rp-tin")?.value || '');
+//   setText('p_rp_amount', `₱ ${parseFloat(document.getElementById("rp-amount")?.value || 0).toFixed(2)}`);
+//   setText('p_rp_remarks', document.getElementById("rp-remarks")?.value || '');
+
+//   // Signature fields
+//   setText('p_rp_requested', document.getElementById("rp-requested-by")?.value || '');
+//   setText('p_rp_checked', document.getElementById("rp-checked-by")?.value || '');
+//   setText('p_rp_recommend', document.getElementById("rp-recommend-approval")?.value || '');
+//   setText('p_rp_approved', document.getElementById("rp-approved-by")?.value || '');
+
+//   // ACTION REQUIRED: map radio inputs to print spans by order instead of hard-coded values
+//   const actionInputs = Array.from(document.querySelectorAll('input[name="rp-action"]'));
+//   const actionChecks = Array.from(document.querySelectorAll('.rp-action-check, .rp-action-check2'));
+//   actionInputs.forEach((inp, i) => {
+//     const span = actionChecks[i];
+//     if (span) span.textContent = inp.checked ? '☒' : '☐';
+//   });
+
+//   // MODES OF PAYMENT: map checkboxes to print spans by index
+//   const modeInputs = Array.from(document.querySelectorAll('.rp-mode'));
+//   const modeChecks = Array.from(document.querySelectorAll('.rp-mode-check'));
+//   modeInputs.forEach((inp, i) => {
+//     const span = modeChecks[i];
+//     if (span) span.textContent = inp.checked ? '☒' : '☐';
+//   });
+
+//   // PAYMENT FOR: map checkboxes to print spans by index
+//   const paymentInputs = Array.from(document.querySelectorAll('.rp-payment-for'));
+//   const paymentChecks = Array.from(document.querySelectorAll('.rp-payment-check'));
+//   paymentInputs.forEach((inp, i) => {
+//     const span = paymentChecks[i];
+//     if (span) span.textContent = inp.checked ? '☒' : '☐';
+//   });
+
+//   print.style.display = 'block';
+//   print.style.visibility = 'visible';
+//   print.style.position = 'relative';
+
+//   (async () => {
+//     try {
+//       await waitForResources(print, 5000);
+//       const opt = {
+//         margin: 8,
+//         filename: (document.getElementById("rp-no")?.value || 'RP') + '.pdf',
+//         image: { type: 'jpeg', quality: 0.98 },
+//         html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', allowTaint: true },
+//         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+//       };
+
+//       await html2pdf().set(opt).from(print).save();
+//     } catch (err) {
+//       console.error('PDF Error:', err);
+//       alert('PDF Error: ' + (err && err.message ? err.message : err));
+//     } finally {
+//       print.style.display = 'none';
+//     }
+//   })();
+// }
+
+function generateRPPdfFromForm() {
+  const print = document.getElementById("print-rp");
+  if (!print) { alert('Print template not found'); return; }
+
+  const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || ''; };
+
+  // Basic info
+  setText('p_rp_no', document.getElementById("rp-no")?.value || '');
+  setText('p_rp_date', document.getElementById("rp-date")?.value || '');
+  setText('p_rp_payee', document.getElementById("rp-payee")?.value || '');
+  setText('p_rp_tin', document.getElementById("rp-tin")?.value || '');
+  setText('p_rp_amount', `₱ ${parseFloat(document.getElementById("rp-amount")?.value || 0).toFixed(2)}`);
+  setText('p_rp_remarks', document.getElementById("rp-remarks")?.value || '');
+
+  // Signature fields
+  setText('p_rp_requested', document.getElementById("rp-requested-by")?.value || '');
+  setText('p_rp_checked', document.getElementById("rp-checked-by")?.value || '');
+  setText('p_rp_recommend', document.getElementById("rp-recommend-approval")?.value || '');
+  // "Approved By" was removed from the form — nothing to populate here
+
+  // ACTION REQUIRED
+  const actionInputs = Array.from(document.querySelectorAll('input[name="rp-action"]'));
+  const actionChecks = Array.from(document.querySelectorAll('.rp-action-check, .rp-action-check2'));
+  actionInputs.forEach((inp, i) => {
+    const span = actionChecks[i];
+    if (span) span.textContent = inp.checked ? '☒' : '☐';
+  });
+
+  // MODES OF PAYMENT
+  const modeInputs = Array.from(document.querySelectorAll('.rp-mode'));
+  const modeChecks = Array.from(document.querySelectorAll('.rp-mode-check'));
+  modeInputs.forEach((inp, i) => {
+    const span = modeChecks[i];
+    if (span) span.textContent = inp.checked ? '☒' : '☐';
+  });
+
+  // PAYMENT FOR
+  const paymentInputs = Array.from(document.querySelectorAll('.rp-payment-for'));
+  const paymentChecks = Array.from(document.querySelectorAll('.rp-payment-check'));
+  paymentInputs.forEach((inp, i) => {
+    const span = paymentChecks[i];
+    if (span) span.textContent = inp.checked ? '☒' : '☐';
+  });
+
+  // VAT
+  const vatChecks = Array.from(document.querySelectorAll('.rp-vat-check'));
+  const vatInput = document.getElementById('rp-vat');
+  const nonVatInput = document.getElementById('rp-non-vat');
+  if (vatChecks[0]) vatChecks[0].textContent = vatInput?.checked ? '☒' : '☐';
+  if (vatChecks[1]) vatChecks[1].textContent = nonVatInput?.checked ? '☒' : '☐';
+
+  print.style.display = 'block';
+  print.style.visibility = 'visible';
+  print.style.position = 'relative';
+
+  (async () => {
+    try {
+      await waitForResources(print, 5000);
+      const opt = {
+        margin: 8,
+        filename: (document.getElementById("rp-no")?.value || 'RP') + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', allowTaint: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      await html2pdf().set(opt).from(print).save();
+    } catch (err) {
+      console.error('PDF Error:', err);
+      alert('PDF Error: ' + (err && err.message ? err.message : err));
+    } finally {
+      print.style.display = 'none';
+    }
+  })();
+}
+
+// ===== PURCHASE REQUISITION (PR) - HTML2PDF =====
+function generatePRPdfFromForm() {
+  const print = document.getElementById("print-pr");
+  
+  if (!print) {
+    alert('Print template not found');
+    return;
+  }
+
+  document.getElementById("p_pr_no").textContent = document.getElementById("pr-no").value || '';
+  document.getElementById("p_pr_requester").textContent = document.getElementById("pr-requester").value || '';
+  document.getElementById("p_pr_dept").textContent = document.getElementById("pr-dept").value || '';
+  document.getElementById("p_pr_date_needed").textContent = document.getElementById("pr-needed").value || '';
+  // populate signature placeholders from form
+  if (document.getElementById("p_pr_requested")) document.getElementById("p_pr_requested").textContent = document.getElementById("pr-requested-by").value || '';
+  if (document.getElementById("p_pr_checked")) document.getElementById("p_pr_checked").textContent = document.getElementById("pr-checked-by").value || '';
+  if (document.getElementById("p_pr_recommend")) document.getElementById("p_pr_recommend").textContent = document.getElementById("pr-recommend-approval").value || '';
+  if (document.getElementById("p_pr_approved")) document.getElementById("p_pr_approved").textContent = document.getElementById("pr-approved-by").value || '';
+
+  const tbody = document.getElementById("p_pr_items");
+  tbody.innerHTML = "";
+
+  document.querySelectorAll("#pr-items tr").forEach(row => {
+    const stk = row.querySelector(".pr-stk")?.value || '';
+    const qty = row.querySelector(".pr-qty")?.value || '';
+    const unit = row.querySelector(".pr-unit")?.value || '';
+    const desc = row.querySelector(".pr-desc")?.value || '';
+    const remark = row.querySelector(".pr-remark")?.value || '';
+
+    const tr = document.createElement('tr');
+    tr.style.height = '16px';
+    tr.innerHTML = `
+      <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${stk}</td>
+      <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${qty}</td>
+      <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${unit}</td>
+      <td style="padding:2px 4px; font-size:8.5px; border:1px solid #000;">${desc}</td>
+      <td style="padding:2px 4px; font-size:8.5px; border:1px solid #000;">${remark}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // add extra empty rows so final PDF density matches PO
+  const extraRows = 8;
+  for (let i = 0; i < extraRows; i++) {
+    const tr = document.createElement('tr');
+    tr.style.height = '16px';
+    tr.innerHTML = `
+      <td style="padding:2px 4px;"></td>
+      <td style="padding:2px 4px;"></td>
+      <td style="padding:2px 4px;"></td>
+      <td style="padding:2px 4px;"></td>
+      <td style="padding:2px 4px;"></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  print.style.display = 'block';
+  print.style.visibility = 'visible';
+  print.style.position = 'relative';
+
+  (async () => {
+    try {
+      await waitForResources(print, 5000);
+      const opt = {
+        margin: 8,
+        filename: (document.getElementById("pr-no").value || 'PR') + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          logging: false, 
+          backgroundColor: '#ffffff',
+          allowTaint: true
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      await html2pdf().set(opt).from(print).save();
+    } catch (err) {
+      console.error('PDF Error:', err);
+      alert('PDF Error: ' + (err && err.message ? err.message : err));
+    } finally {
+      print.style.display = 'none';
+    }
+  })();
+}
+
+/* -------------------------
+   FIXED: Render lists from DATABASE
+   ------------------------- */
+async function renderList(mod) {
+  const area = document.getElementById(mod + '-list-area');
+  area.innerHTML = '<div style="padding:12px">Loading...</div>';
+
+  try {
+    // try fetching from server; fall back to localStorage
+    let list = await fetchListServer(mod);
+    if (!Array.isArray(list)) {
+      list = readList(mod) || [];
+    } else {
+      // cache server list locally for offline use but separate server vs local ids
+      try {
+        const cached = [];
+        list.forEach(s => {
+          const item = Object.assign({}, s);
+          if (mod === 'rp') ensureRPComputedFields(item);
+          // move server id into server_id so we can assign a stable local id
+          if (item.id !== undefined && item.id !== null) {
+            item.server_id = item.id;
+            delete item.id;
+          }
+          // If we have a local cached version for the same server record, merge
+          // local-only fields (like signature inputs) into the server item so
+          // user-entered values aren't lost when refreshing from server.
+          try {
+            const localExisting = readList(mod) || [];
+            const match = localExisting.find(l => l.server_id && String(l.server_id) === String(item.server_id));
+            if (match) {
+              if (mod === 'rp') ensureRPComputedFields(match);
+              // prefer server values when present, but fill missing values from local
+              Object.keys(match).forEach(k => {
+                if (k === 'id' || k === 'local_id' || k === 'server_id') return;
+                if ((item[k] === undefined || item[k] === null || item[k] === '') && (match[k] !== undefined && match[k] !== null && match[k] !== '')) {
+                  item[k] = match[k];
+                }
+              });
+              // reuse the previous local id if present so UI keeps stable ids
+              if (match.local_id) {
+                item.id = match.local_id;
+                item.local_id = match.local_id;
+              } else {
+                item.id = generateId(mod);
+                item.local_id = item.id;
+              }
+            } else {
+              // assign a local id for caching so UI buttons keep working
+              item.id = generateId(mod);
+              item.local_id = item.id;
+            }
+          } catch(e) {
+            item.id = generateId(mod);
+            item.local_id = item.id;
+          }
+          cached.push(item);
+        });
+        // preserve any locally-edited records that are pending sync so we don't lose them
+        try {
+          const localExisting = readList(mod) || [];
+          localExisting.forEach(l => {
+            if (l._pending_sync) {
+              cached.push(l);
+            }
+          });
+        } catch(e) {
+          // ignore
+        }
+        writeList(mod, cached);
+        list = cached;
+      } catch(e) {
+        console.warn('Failed to cache server list', e);
+        list = readList(mod) || [];
+      }
+    }
+
+    const poCache = (mod === 'grn') ? (readList('po') || []) : null;
+
+    // Apply filters
+    const period = document.getElementById(mod + '-filter') ? document.getElementById(mod + '-filter').value : 'all';
+    const from = document.getElementById(mod + '-from') ? document.getElementById(mod + '-from').value : '';
+    const to = document.getElementById(mod + '-to') ? document.getElementById(mod + '-to').value : '';
+    const search = document.getElementById(mod + '-search') ? document.getElementById(mod + '-search').value.toLowerCase() : '';
+    // NEW: department search input
+    const deptSearch = document.getElementById(mod + '-dept-search') ? document.getElementById(mod + '-dept-search').value.toLowerCase().trim() : '';
+
+    const now = new Date();
+    // helper: faster search matching only specific fields rather than JSON.stringify
+    const matchesSearch = (it, mod, q) => {
+      if (!q) return true;
+      q = q.toLowerCase();
+      if (mod === 'po') {
+        return (String(it.no||'') + ' ' + String(it.supplier||'') + ' ' + String(it.dept||'')).toLowerCase().indexOf(q) !== -1;
+      }
+      if (mod === 'rp') {
+        return (String(it.no||'') + ' ' + String(it.payee||'') + ' ' + String(it.dept||'')).toLowerCase().indexOf(q) !== -1;
+      }
+      if (mod === 'pr') {
+        return (String(it.no||'') + ' ' + String(it.requester||'') + ' ' + String(it.dept||'')).toLowerCase().indexOf(q) !== -1;
+      }
+      return JSON.stringify(it).toLowerCase().indexOf(q) !== -1;
+    };
+
+    list = list.filter(item => {
+      let ok = true;
+      if (period === 'weekly') {
+        const d = new Date(item.date);
+        const diff = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+        if (diff > 7) ok = false;
+      }
+      if (period === 'monthly') {
+        const d = new Date(item.date);
+        if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) ok = false;
+      }
+      if (period === 'yearly') {
+        const d = new Date(item.date);
+        if (d.getFullYear() !== now.getFullYear()) ok = false;
+      }
+      if (from && new Date(item.date) < new Date(from)) ok = false;
+      if (to && new Date(item.date) > new Date(to)) ok = false;
+      if (!matchesSearch(item, mod, search)) ok = false;
+      // NEW: apply department filter (works for PO, RP, PR)
+      if (deptSearch) {
+        const deptVal = (item.dept || '').toLowerCase();
+        if (!deptVal.includes(deptSearch)) ok = false;
+      }
+      return ok;
+    });
+
+    if (!list || list.length === 0) {
+      area.innerHTML = '<div class="small" style="padding:12px">No records</div>';
+      return;
+    }
+
+    let html = '<table><thead><tr>';
+    if (mod === 'po') html += '<th>PO No.</th><th>Date</th><th>Supplier</th><th>Dept</th><th>Total</th><th></th>';
+    if (mod === 'rp') html += '<th>RP No.</th><th>Date</th><th>Payee</th><th>Amount</th><th>Status</th><th></th>';
+    if (mod === 'pr') html += '<th>MRF No.</th><th>Date</th><th>Requester</th><th>Dept</th><th></th>';
+    if (mod === 'grn') html += '<th>GRN No.</th><th>Date</th><th>PO</th><th>Received By</th><th></th>';
+    html += '</tr></thead><tbody>';
+
+    list.forEach((it) => {
+      if (mod === 'po') {
+        html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.supplier}</td><td>${it.dept||''}</td><td>₱ ${Number(it.total||0).toFixed(2)}</td><td>
+          <button class="btn" onclick="downloadPOFromDB(${it.id})">PDF</button>
+          <button class="btn" onclick="editPO(${it.id})">Edit</button>
+          <button class="btn danger" onclick="deletePO(${it.id})">Delete</button>
+        </td></tr>`;
+      }
+      if (mod === 'rp') {
+        const normalized = ensureRPComputedFields(it) || {};
+        const status = normalized.status || '';
+        html += `<tr><td>${normalized.no}</td><td>${normalized.date}</td><td>${normalized.payee}</td><td>₱ ${Number(normalized.amount||0).toFixed(2)}</td><td>${status}</td><td>
+          <button class="btn" onclick="downloadRPFromDB(${it.id})">PDF</button>
+          <button class="btn" onclick="editRP(${it.id})">Edit</button>
+          <button class="btn" onclick="viewRPInvoice(${it.id})">View Invoice</button>
+          <button class="btn danger" onclick="deleteRP(${it.id})">Delete</button>
+        </td></tr>`;
+      }
+      if (mod === 'pr') {
+        const itemCount = it.items ? (Array.isArray(it.items) ? it.items.length : 0) : 0;
+        html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.requester}</td><td>${it.dept||''}</td><td>
+          <button class="btn" onclick="downloadPRFromDB(${it.id})">PDF</button>
+          <button class="btn" onclick="editPR(${it.id})">Edit</button>
+          <button class="btn danger" onclick="deletePR(${it.id})">Delete</button>
+        </td></tr>`;
+      }
+      if (mod === 'grn') {
+        const linkedPOText = resolvePONumber(it.linked_po, poCache);
+        html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${linkedPOText}</td><td>${it.received_by||''}</td><td>
+          <button class="btn" onclick="editGRN(${it.id})">Edit</button>
+          <button class="btn danger" onclick="deleteGRN(${it.id})">Delete</button>
+        </td></tr>`;
+      }
+    });
+
+    html += '</tbody></table>';
+    area.innerHTML = html;
+
+  } catch (err) {
+    console.error('Error loading list:', err);
+    area.innerHTML = '<div style="padding:12px;color:red">Error loading records. Make sure server is running.</div>';
+  }
+}
+
+/* Download functions - fetch from database by ID */
+async function downloadPOFromDB(id) {
+  try {
+    // try server GET first (prefer server record when cached)
+    let po = await fetchFromServerOrCache('po', id);
+    if (!po) throw new Error('Purchase Order not found');
+
+    // Fill form
+    document.getElementById("po-no").value = po.no || '';
+    document.getElementById("po-date").value = po.date || '';
+    document.getElementById("po-dept").value = po.dept || '';
+    document.getElementById("po-supplier").value = po.supplier || '';
+    document.getElementById("po-tin").value = po.tin || '';
+    document.getElementById("po-address").value = po.address || '';
+    document.getElementById("po-contact-person").value = po.contact_person || '';
+    document.getElementById("po-contact-number").value = po.contact_number || '';
+
+    document.getElementById("po-prepared-by").value = po.prepared_by || '';
+    document.getElementById("po-checked-by").value = po.checked_by || '';
+    document.getElementById("po-approved-by").value = po.approved_by || '';
+
+    document.getElementById("po-items").innerHTML = '';
+    if (Array.isArray(po.items) && po.items.length > 0) {
+      po.items.forEach(it => {
+        poAddItem(it.qty || 0, it.unit || '', it.description || it.desc || '', Number(it.unit_cost || it.unit_cost || 0), it.del_date || '');
+      });
+    }
+
+    updatePOTotal();
+    generatePOPdfFromForm();
+  } catch (err) {
+    console.error('downloadPOFromDB Error:', err);
+    alert('Error loading Purchase Order: ' + err.message);
+  }
+}
+
+async function editPR(id) {
+  try {
+    editingPRId = id;
+    // IMPORTANT: Set hd_last_module so closeForm() knows to return to PR list
+    storage.setItem('hd_last_module', 'pr');
+    let pr = await fetchFromServerOrCache('pr', id);
+    if (!pr) pr = findById('pr', id);
+    if (!pr) throw new Error('Purchase Requisition not found');
+
+    // populate fields
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('pr-no', pr.no);
+    set('pr-date', pr.date);
+    set('pr-requester', pr.requester);
+    set('pr-dept', pr.dept);
+    set('pr-needed', pr.date_needed);
+    // populate signature inputs when editing
+    set('pr-requested-by', pr.requested_by || '');
+    set('pr-checked-by', pr.checked_by || '');
+    set('pr-recommend-approval', pr.recommend_approval || '');
+    set('pr-approved-by', pr.approved_by || '');
+
+    // items
+    const itemsEl = document.getElementById('pr-items');
+    if (itemsEl) itemsEl.innerHTML = '';
+    let items = pr.items;
+    if (typeof items === 'string') {
+      try { items = JSON.parse(items); } catch(e) { items = []; }
+    }
+    if (Array.isArray(items) && items.length > 0) {
+      items.forEach(it => {
+        // prAddItem(stk='', q=1, unit='pcs', desc='', remark='')
+        if (typeof prAddItem === 'function') prAddItem(it.stk || '', it.qty || 0, it.unit || '', it.desc || it.description || '', it.remark || it.remarks || '');
+      });
+    } else {
+      if (typeof prAddItem === 'function') prAddItem();
+    }
+
+    hideAll();
+    const f = document.getElementById('form-pr');
+    if (f) f.style.display = 'block';
+  } catch (err) {
+    console.error('editPR error:', err);
+    alert('Error loading Purchase Requisition for edit.');
+    editingPRId = null;
+  }
+}
+
+function prPrepare() {
+  const next = storage.getItem(KEYS.PR_NEXT);
+  const el = id => document.getElementById(id);
+  if (el('pr-no')) el('pr-no').value = next;
+  if (el('pr-date')) el('pr-date').valueAsDate = new Date();
+  if (el('pr-requester')) el('pr-requester').value = '';
+  if (el('pr-dept')) el('pr-dept').value = '';
+  if (el('pr-needed')) el('pr-needed').value = '';
+  if (el('pr-remarks')) el('pr-remarks').value = '';
+  if (el('pr-requested-by')) el('pr-requested-by').value = '';
+  if (el('pr-checked-by')) el('pr-checked-by').value = '';
+  if (el('pr-recommend-approval')) el('pr-recommend-approval').value = '';
+  if (el('pr-approved-by')) el('pr-approved-by').value = '';
+  if (el('pr-items')) el('pr-items').innerHTML = '';
+  // add first empty item row if helper exists
+  if (typeof prAddItem === 'function') prAddItem();
+  // clear editing state for PR
+  editingPRId = null;
+  storage.setItem('hd_last_module', 'pr');
+}
+
+// Delete Purchase Requisition
+async function deletePR(id) {
+  if (!confirm('Delete this Purchase Requisition?')) return;
+  try {
+    const list = readList('pr');
+    const idx = list.findIndex(it => Number(it.id) === Number(id));
+    if (idx === -1) { alert('PR not found'); return; }
+    const item = list[idx];
+    try {
+      if (item && item.server_id) await deleteServer('pr', item.server_id);
+      else await deleteServer('pr', id);
+    } catch (e) {
+      console.warn('Server delete failed, removing local cache anyway', e);
+    }
+    list.splice(idx,1);
+    writeList('pr', list);
+    alert('Deleted successfully');
+    renderList('pr');
+  } catch (err) {
+    console.error('deletePR error:', err);
+    alert('Error deleting Purchase Requisition');
+  }
+}
+
+// Download PR and generate PDF (used by list "PDF" button)
+async function downloadPRFromDB(id) {
+  try {
+    // try server first (prefer server record when cached)
+    let pr = await fetchFromServerOrCache('pr', id);
+    if (!pr) pr = findById('pr', id);
+    if (!pr) throw new Error('PR not found');
+
+    // populate hidden print form fields so generatePRPdfFromForm can use them
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || ''; };
+    setText('p_pr_no', pr.no || '');
+    setText('p_pr_requester', pr.requester || '');
+    setText('p_pr_dept', pr.dept || '');
+    setText('p_pr_date_needed', pr.date_needed || '');
+    // also populate form fields so generatePRPdfFromForm reads them
+    const setInput = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    // core form values
+    setInput('pr-no', pr.no || '');
+    setInput('pr-date', pr.date || '');
+    setInput('pr-requester', pr.requester || '');
+    setInput('pr-dept', pr.dept || '');
+    setInput('pr-needed', pr.date_needed || '');
+    setInput('pr-remarks', pr.remarks || '');
+    // signature inputs
+    setInput('pr-requested-by', pr.requested_by || '');
+    setInput('pr-checked-by', pr.checked_by || '');
+    setInput('pr-recommend-approval', pr.recommend_approval || '');
+    setInput('pr-approved-by', pr.approved_by || '');
+
+    // also populate print-only placeholders for the fast download path
+    setText('p_pr_requested', pr.requested_by || '');
+    setText('p_pr_checked', pr.checked_by || '');
+    setText('p_pr_recommend', pr.recommend_approval || '');
+    setText('p_pr_approved', pr.approved_by || '');
+
+    const tbody = document.getElementById('p_pr_items');
+    if (tbody) {
+      tbody.innerHTML = '';
+      let items = pr.items;
+      if (typeof items === 'string') {
+        try { items = JSON.parse(items); } catch(e) { items = []; }
+      }
+      if (Array.isArray(items) && items.length) {
+        // populate both the print-only table AND the editable form rows
+        const formItemsEl = document.getElementById('pr-items');
+        if (formItemsEl) formItemsEl.innerHTML = '';
+        items.forEach(it => {
+          if (typeof prAddItem === 'function') prAddItem(it.stk || '', it.qty || 0, it.unit || '', it.desc || it.description || '', it.remark || it.remarks || '');
+          const tr = document.createElement('tr');
+          tr.style.height = '16px';
+          tr.innerHTML = `
+            <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${it.stk || ''}</td>
+            <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${it.qty || ''}</td>
+            <td style="padding:2px 4px; text-align:center; font-size:8.5px; border:1px solid #000;">${it.unit || ''}</td>
+            <td style="padding:2px 4px; font-size:8.5px; border:1px solid #000;">${it.desc || it.description || ''}</td>
+            <td style="padding:2px 4px; font-size:8.5px; text-align:right; border:1px solid #000;">${''}</td>
+            <td style="padding:2px 4px; font-size:8.5px; text-align:right; border:1px solid #000;">${''}</td>
+            <td style="padding:2px 4px; font-size:8.5px; text-align:right; border:1px solid #000;">${''}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    // generate PDF from print-pr template
+    generatePRPdfFromForm();
+  } catch (err) {
+    console.error('downloadPRFromDB error:', err);
+    alert('Error loading Purchase Requisition for PDF: ' + (err.message || err));
+  }
+}
+
+// async function downloadRPFromDB(id) {
+//   try {
+//     // try server first (prefer server record when cached)
+//     let rp = await fetchFromServerOrCache('rp', id);
+//     if (!rp) rp = findById('rp', id);
+//     if (!rp) throw new Error('RP not found');
+
+//     // Fill form fields (so generateRPPdfFromForm can read them)
+//     document.getElementById("rp-no").value = rp.no || '';
+//     document.getElementById("rp-date").value = rp.date || '';
+//     document.getElementById("rp-payee").value = rp.payee || '';
+//     document.getElementById("rp-tin").value = rp.tin || '';
+//     document.getElementById("rp-amount").value = rp.amount || '';
+//     document.getElementById("rp-remarks").value = rp.remarks || '';
+//     document.getElementById("rp-requested-by").value = rp.requested_by || '';
+//     document.getElementById("rp-checked-by").value = rp.checked_by || '';
+//     document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
+//     document.getElementById("rp-approved-by").value = rp.approved_by || '';
+
+//     // Restore checkbox/radio states from DB so generateRPPdfFromForm reads them
+//     document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+
+//     if (rp.mode_of_payment) {
+//       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
+//     } else {
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
+//     }
+
+//     if (rp.payment_for) {
+//       const pf = rp.payment_for.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
+//     } else {
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
+//     }
+
+//     // Preview existing invoice if server returned invoice_url
+//     if (rp.invoice_url) {
+//       const img = document.getElementById('rp-invoice-img');
+//       if (img) { img.src = rp.invoice_url; img.style.display = 'block'; }
+//     }
+
+//     // NOW generateRPPdfFromForm can read the restored checkboxes
+//     generateRPPdfFromForm();
+    
+//   } catch (err) {
+//     console.error('downloadRPFromDB Error:', err);
+//     alert('Error loading Request for Payment: ' + err.message);
+//   }
+// }
+
+async function downloadRPFromDB(id) {
+  try {
+    let rp = await fetchFromServerOrCache('rp', id);
+    if (!rp) rp = findById('rp', id);
+    if (!rp) throw new Error('RP not found');
+    rp = ensureRPComputedFields(rp);
+
+    // Set values with null checks
+    const setVal = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value || '';
+    };
+
+    // Fill form fields
+    setVal('rp-no', rp.no);
+    setVal('rp-date', rp.date);
+    setVal('rp-payee', rp.payee);
+    setVal('rp-tin', rp.tin);
+    setVal('rp-amount', rp.amount);
+    setVal('rp-remarks', rp.remarks);
+    setVal('rp-requested-by', rp.requested_by);
+    setVal('rp-checked-by', rp.checked_by);
+    setVal('rp-recommend-approval', rp.recommend_approval);
+
+    // Restore checkbox/radio states
+    document.querySelectorAll('input[name="rp-action"]').forEach(el => {
+      el.checked = (el.value === rp.action_required);
+    });
+
+    if (rp.mode_of_payment) {
+      const modes = rp.mode_of_payment.split(',').map(s => s.trim());
+      document.querySelectorAll('.rp-mode').forEach(el => {
+        el.checked = modes.includes(el.value);
+      });
+    } else {
+      document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
+    }
+
+    if (rp.payment_for) {
+      const pf = rp.payment_for.split(',').map(s => s.trim());
+      document.querySelectorAll('.rp-payment-for').forEach(el => {
+        el.checked = pf.includes(el.value);
+      });
+    } else {
+      document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
+    }
+
+    // Restore VAT selection
+    const vatEl = document.getElementById('rp-vat');
+    const nonVatEl = document.getElementById('rp-non-vat');
+    if (vatEl && nonVatEl) {
+      if (rp.vat === 'VAT') {
+        vatEl.checked = true;
+        nonVatEl.checked = false;
+      } else if (rp.vat === 'NON-VAT') {
+        vatEl.checked = false;
+        nonVatEl.checked = true;
+      } else {
+        vatEl.checked = false;
+        nonVatEl.checked = false;
+      }
+    }
+
+    // Preview invoice if exists
+    const img = document.getElementById('rp-invoice-img');
+    const invoicePreview = (rp.invoice_image || rp.invoice_url);
+    if (invoicePreview && img) {
+      img.src = invoicePreview; 
+      img.style.display = 'block';
+    }
+
+    generateRPPdfFromForm();
+    
+  } catch (err) {
+    console.error('downloadRPFromDB Error:', err);
+    alert('Error loading Request for Payment: ' + err.message);
+  }
+}
+
+
+// Add item row to PR items table
+function prAddItem(stk='', qty=1, unit='pcs', desc='', remark='') {
+  const tbody = document.getElementById('pr-items');
+  if (!tbody) return;
+
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="pr-stk" type="text" value="${stk}" placeholder="Stock Code"></td>
+    <td><input class="pr-qty" type="number" min="0" value="${qty}"></td>
+    <td><input class="pr-unit" type="text" value="${unit}" placeholder="Unit"></td>
+    <td><input class="pr-desc" type="text" value="${desc}" placeholder="Description"></td>
+    <td><input class="pr-remark" type="text" value="${remark}" placeholder="Remarks"></td>
+    <td><button class="btn secondary" onclick="this.closest('tr').remove()">Remove</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// -------------------------
+// GRN helpers
+// -------------------------
+function grnPrepare() {
+  const next = storage.getItem(KEYS.PO_NEXT) || storage.getItem(KEYS.PR_NEXT);
+  document.getElementById('grn-no').value = storage.getItem(KEYS.PO_NEXT) ? ('GRN-' + (new Date().getTime() % 100000)) : ('GRN-0001');
+  const el = id => document.getElementById(id);
+  if (el('grn-date')) el('grn-date').valueAsDate = new Date();
+  if (el('grn-linked-po')) el('grn-linked-po').innerHTML = '<option value="">-- Select PO --</option>';
+  // populate PO list for selection
+  const pos = readList('po') || [];
+  const sel = document.getElementById('grn-linked-po');
+  pos.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.text = p.no || ('PO-' + p.id);
+    sel.appendChild(opt);
+  });
+  // clear items
+  if (el('grn-items')) el('grn-items').innerHTML = '';
+  if (typeof grnAddItem === 'function') grnAddItem();
+  if (el('grn-received-by')) el('grn-received-by').value = '';
+  storage.setItem('hd_last_module', 'grn');
+}
+
+function grnAddItem(desc='', unit='', poQty=0, receivedQty=0) {
+  const tbody = document.getElementById('grn-items');
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td style="width:40px; text-align:center;">${tbody.children.length+1}</td>
+    <td><input class="grn-desc" type="text" value="${desc}"></td>
+    <td><input class="grn-unit" type="text" value="${unit}"></td>
+    <td><input class="grn-poqty" type="number" value="${poQty}" readonly></td>
+    <td><input class="grn-rec" type="number" value="${receivedQty}" min="0"></td>
+    <td><button class="btn secondary" onclick="this.closest('tr').remove()">Remove</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function grnLinkedPOChanged() {
+  const poId = document.getElementById('grn-linked-po')?.value;
+  if (!poId) return;
+  
+  // Async wrapper to fetch PO and populate items
+  (async () => {
+    let po = await fetchFromServerOrCache('po', poId) || findById('po', poId);
+    if (!po) return;
+    
+    const tbody = document.getElementById('grn-items');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    (po.items || []).forEach(it => {
+      grnAddItem(it.description || it.desc || '', it.unit || '', it.qty || 0, it.qty || 0);
+    });
+    
+    // After populating GRN items, try to auto-fill RP based on this PO + GRN
+    // find a GRN record that matches this PO (if any) and use it; otherwise use transient form data
+    const grns = readList('grn') || [];
+    const linkedGrn = grns.find(g => String(g.linked_po) === String(poId));
+    if (linkedGrn) {
+      // auto open RP form populated from PO + this GRN
+      await attemptAutoFillRP(poId, linkedGrn.id);
+    } else {
+      // use transient grn form data to compute payable and fill RP without saving GRN
+      await attemptAutoFillRP(poId, null);
+    }
+  })();
+}
+
+// Compute payable amount using PO and GRN items. Matches GRN items to PO items by description or index.
+function computePayableFromPOAndGRN(po, grn) {
+  if (!po) return 0;
+  let total = 0;
+  const poItems = po.items || [];
+  const grnItems = (grn && grn.items) ? grn.items : Array.from(document.querySelectorAll('#grn-items tr')).map(row => {
+    return {
+      description: row.querySelector('.grn-desc')?.value || '',
+      receivedQty: parseFloat(row.querySelector('.grn-rec')?.value || 0)
+    };
+  });
+
+  grnItems.forEach((gItem, idx) => {
+    const desc = (gItem.description || '').toString().toLowerCase().trim();
+    // try to find matching po item by description
+    let p = poItems.find(pi => ((pi.description||pi.desc||'').toString().toLowerCase().trim() === desc));
+    if (!p) p = poItems[idx]; // fallback to same index
+    const unit_cost = p ? (parseFloat(p.unit_cost || p.unit_cost || 0) || 0) : 0;
+    const qty = parseFloat(gItem.receivedQty || gItem.receivedQty === 0 ? gItem.receivedQty : gItem.poQty || 0) || 0;
+    total += qty * unit_cost;
+  });
+  return total;
+}
+
+// Fill RP form fields from PO and GRN objects. Opens RP form and populates fields.
+function fillRPFormFromPOAndGRN(po, grn) {
+  if (!po) return;
+  openCreate('rp'); // prepare form
+  // fill basic fields
+  const next = storage.getItem(KEYS.RP_NEXT) || 'RP-0001';
+  document.getElementById('rp-no').value = next;
+  document.getElementById('rp-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('rp-payee').value = po.supplier || '';
+  document.getElementById('rp-tin').value = po.tin || '';
+  // compute amount payable from GRN/PO
+  const amount = computePayableFromPOAndGRN(po, grn);
+  document.getElementById('rp-amount').value = amount ? Number(amount.toFixed(2)) : '';
+  // default remarks and references
+  const ref = `Auto: PO ${po.no || ''}${grn && grn.no ? ' / GRN ' + grn.no : ''}`;
+  document.getElementById('rp-remarks').value = ref;
+  // set requested/checked/approved left blank for user to fill
+  // set payment_for to SUPPLIER by default
+  document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = (el.value && el.value.toUpperCase().includes('SUPPLIER')));
+  // set mode of payment default to CHECK
+  document.querySelectorAll('.rp-mode').forEach(el => el.checked = (el.value && el.value.toUpperCase().includes('CHECK')));
+}
+
+// Attempt auto-fill RP: given poId and optional grnId (may be null for transient form)
+// Now async to allow server fetch of PO if needed
+async function attemptAutoFillRP(poId, grnId) {
+  // respect configuration: do not auto-create draft RPs when disabled
+  if (!AUTO_CREATE_DRAFT_RP) return;
+  console.log('attemptAutoFillRP called with poId=', poId, 'grnId=', grnId);
+  // Try to fetch PO from server or cache
+  let po = null;
+  try {
+    po = await fetchFromServerOrCache('po', poId) || findById('po', poId) || null;
+  } catch (e) { console.warn('attemptAutoFillRP fetch PO error', e); }
+  let grn = null;
+  try {
+    if (grnId) grn = findById('grn', grnId) || null;
+  } catch(e) { console.warn('attemptAutoFillRP find grn error', e); }
+  console.log('attemptAutoFillRP resolved po=', po ? (po.id || po.server_id) : null, 'grn=', grn ? grn.id : null);
+  // If we have a PO, create or update a DRAFT RFP (hybrid approach)
+  if (po) {
+    createOrUpdateDraftRP(po, grn);
+  } else {
+    console.log('attemptAutoFillRP: no PO found for', poId);
+  }
+}
+
+// Create or update a draft RP (status: PENDING_INVOICE) from PO and GRN
+function createOrUpdateDraftRP(po, grn) {
+  const list = readList('rp') || [];
+  // try find existing draft for this PO and GRN
+  let existing = list.find(r => String(r.linked_po) === String(po.id) && ((grn && String(r.linked_grn) === String(grn.id)) || (!grn && !r.linked_grn)));
+
+  const amount = computePayableFromPOAndGRN(po, grn);
+  const now = new Date().toISOString().slice(0,10);
+  
+  // Build items list from GRN if available, otherwise from PO
+  let rpItems = [];
+  if (grn && grn.items) {
+    rpItems = grn.items.map(gItem => {
+      const poItem = (po.items || []).find(p => (p.description || p.desc || '').toLowerCase() === (gItem.description || '').toLowerCase());
+      return {
+        description: gItem.description || '',
+        unit: gItem.unit || '',
+        poQty: poItem ? (poItem.qty || 0) : 0,
+        receivedQty: gItem.receivedQty || 0,
+        unitCost: poItem ? (poItem.unit_cost || 0) : 0,
+        lineTotal: (gItem.receivedQty || 0) * (poItem ? (poItem.unit_cost || 0) : 0)
+      };
+    });
+  } else if (po && po.items) {
+    rpItems = (po.items || []).map(pItem => ({
+      description: pItem.description || pItem.desc || '',
+      unit: pItem.unit || '',
+      poQty: pItem.qty || 0,
+      receivedQty: pItem.qty || 0,
+      unitCost: pItem.unit_cost || 0,
+      lineTotal: (pItem.qty || 0) * (pItem.unit_cost || 0)
+    }));
+  }
+  
+  if (existing) {
+    existing.payee = po.supplier || existing.payee;
+    existing.tin = po.tin || existing.tin;
+    existing.amount = amount;
+    existing.remarks = `Auto-draft from PO ${po.no}${grn && grn.no ? ' / GRN ' + grn.no : ''}`;
+    existing.linked_po = po.id;
+    existing.items = rpItems;
+    if (grn) existing.linked_grn = grn.id;
+    existing.status = existing.invoice_image ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+    // mark pending sync if this draft has no server id so caching won't wipe it
+    if (!existing.server_id) existing._pending_sync = true;
+    console.log('createOrUpdateDraftRP: updated existing RP', existing.id, 'amount=', existing.amount);
+    // draft updated — do not auto-open form; user will open RFP to attach invoice
+    console.log('createOrUpdateDraftRP: draft updated (not opening form) id=', existing.id);
+  } else {
+    const rp = {
+      id: generateId('rp'),
+      no: storage.getItem(KEYS.RP_NEXT) || 'RP-0001',
+      date: now,
+      payee: po.supplier || '',
+      tin: po.tin || '',
+      action_required: null,
+      mode_of_payment: null,
+      payment_for: 'SUPPLIER',
+      amount: amount,
+      remarks: `Auto-draft from PO ${po.no}${grn && grn.no ? ' / GRN ' + grn.no : ''}`,
+      requested_by: '', checked_by: '', recommend_approval: '', approved_by: '',
+      linked_po: po.id,
+      linked_grn: grn ? grn.id : null,
+      items: rpItems,
+      invoice_image: null,
+      invoice_filename: null,
+      status: 'PENDING_INVOICE'
+    };
+    // mark new drafts as pending sync so server caching doesn't remove them
+    rp._pending_sync = true;
+    list.push(rp);
+    console.log('createOrUpdateDraftRP: created new RP', rp.id, 'linked_po=', rp.linked_po, 'linked_grn=', rp.linked_grn, 'amount=', rp.amount);
+    // draft created — do not auto-open form; user will open RFP to attach invoice
+    console.log('createOrUpdateDraftRP: draft created (not opening form) id=', rp.id);
+  }
+  writeList('rp', list);
+  // do not increment RP_NEXT until user finalizes; just render updated list
+  renderList('rp');
+}
+
+async function saveGRN() {
+  const no = document.getElementById('grn-no').value;
+  const date = document.getElementById('grn-date').value || new Date().toISOString().slice(0,10);
+  const linked_po = document.getElementById('grn-linked-po')?.value || null;
+  const received_by = document.getElementById('grn-received-by')?.value || '';
+  const items = [];
+  document.querySelectorAll('#grn-items tr').forEach(row => {
+    const desc = row.querySelector('.grn-desc')?.value || '';
+    const unit = row.querySelector('.grn-unit')?.value || '';
+    const poQty = parseFloat(row.querySelector('.grn-poqty')?.value || 0);
+    const rec = parseFloat(row.querySelector('.grn-rec')?.value || 0);
+    items.push({ description: desc, unit, poQty, receivedQty: rec });
+  });
+  const grn = { no, date, linked_po, received_by, items };
+
+  try {
+    // try server save (if endpoint exists)
+    const serverResp = await createServer('grn', grn, null);
+    const list = readList('grn');
+    if (serverResp && serverResp.no) {
+      // If editing an existing local GRN, remove it from cache to avoid duplicates
+      if (editingGRNId) {
+        const idx = list.findIndex(it => Number(it.id) === Number(editingGRNId));
+        if (idx !== -1) list.splice(idx, 1);
+        editingGRNId = null;
+      }
+      const localId = generateId('grn');
+      // preserve server id in server_resp.server_id before assigning a local id
+      if (serverResp.id !== undefined && serverResp.server_id === undefined) serverResp.server_id = serverResp.id;
+      serverResp.local_id = localId;
+      serverResp.id = localId;
+      if (serverResp.server_id === undefined && serverResp.id) serverResp.server_id = serverResp.id;
+      list.push(serverResp);
+      writeList('grn', list);
+      renderList('grn');
+      alert('GRN saved to server and cached locally.');
+      // Auto-fill RP form if linked_po exists
+      if (linked_po) {
+        await attemptAutoFillRP(linked_po, serverResp.id);
+      }
+      closeForm();
+      return;
+    }
+    // fallback local save/update
+    if (editingGRNId) {
+      const idx = list.findIndex(it => Number(it.id) === Number(editingGRNId));
+      if (idx === -1) throw new Error('GRN not found');
+      grn.id = editingGRNId;
+      list[idx] = grn;
+      writeList('grn', list);
+      editingGRNId = null;
+      renderList('grn');
+      alert('GRN updated locally.');
+      // Auto-fill RP form if linked_po exists
+      if (linked_po) {
+        await attemptAutoFillRP(linked_po, grn.id);
+      }
+      closeForm();
+      return;
+    }
+    grn.id = generateId('grn');
+    list.push(grn);
+    writeList('grn', list);
+    renderList('grn');
+    alert('GRN saved locally!');
+    // Auto-fill RP form if linked_po exists
+    if (linked_po) {
+      await attemptAutoFillRP(linked_po, grn.id);
+    }
+    closeForm();
+  } catch (err) {
+    console.error('Error saving GRN:', err);
+    alert('Error saving GRN. See console.');
+  }
+}
+
+async function editGRN(id) {
+  try {
+    // set editing state so saveGRN will update instead of creating new
+    editingGRNId = id;
+    storage.setItem('hd_last_module', 'grn');
+    let grn = await fetchFromServerOrCache('grn', id);
+    if (!grn) grn = findById('grn', id);
+    if (!grn) throw new Error('GRN not found');
+    document.getElementById('grn-no').value = grn.no || '';
+    document.getElementById('grn-date').value = grn.date || '';
+    // populate PO dropdown
+    const sel = document.getElementById('grn-linked-po');
+    if (sel) {
+      sel.innerHTML = '<option value="">-- Select PO --</option>';
+      const pos = readList('po') || [];
+      pos.forEach(p => { const opt = document.createElement('option'); opt.value = p.id; opt.text = p.no || ('PO-'+p.id); sel.appendChild(opt); });
+      if (grn.linked_po) sel.value = grn.linked_po;
+    }
+    const tbody = document.getElementById('grn-items');
+    if (tbody) tbody.innerHTML = '';
+    let items = grn.items || [];
+    items.forEach(it => grnAddItem(it.description || it.desc || '', it.unit || '', it.poQty || 0, it.receivedQty || 0));
+    document.getElementById('grn-received-by').value = grn.received_by || '';
+    hideAll();
+    const f = document.getElementById('form-grn'); if (f) f.style.display = 'block';
+  } catch (err) {
+    console.error('editGRN error:', err);
+    alert('Error loading GRN for edit.');
+  }
+}
+
+async function deleteGRN(id) {
+  if (!confirm('Delete this GRN?')) return;
+  try {
+    const list = readList('grn');
+    const idx = list.findIndex(it => Number(it.id) === Number(id));
+    if (idx === -1) { alert('GRN not found'); return; }
+    const item = list[idx];
+    try { if (item && item.server_id) await deleteServer('grn', item.server_id); else await deleteServer('grn', id); } catch(e){console.warn(e)}
+    list.splice(idx,1);
+    writeList('grn', list);
+    alert('Deleted successfully');
+    renderList('grn');
+  } catch (err) { console.error('deleteGRN error:', err); alert('Error deleting GRN'); }
+}
+
+async function savePR() {
+  const no = document.getElementById('pr-no').value;
+  const date = document.getElementById('pr-date').value || new Date().toISOString().slice(0,10);
+  const requester = document.getElementById('pr-requester').value;
+  const dept = document.getElementById('pr-dept').value;
+  const date_needed = document.getElementById('pr-needed').value;
+  const remarks = document.getElementById('pr-remarks')?.value || '';
+  // signature fields
+  const requested_by = document.getElementById('pr-requested-by')?.value || '';
+  const checked_by = document.getElementById('pr-checked-by')?.value || '';
+  const recommend_approval = document.getElementById('pr-recommend-approval')?.value || '';
+  const approved_by = document.getElementById('pr-approved-by')?.value || '';
+
+  const items = [];
+  document.querySelectorAll('#pr-items tr').forEach((row, idx) => {
+    const stk = row.querySelector('.pr-stk')?.value || '';
+    const qty = parseFloat(row.querySelector('.pr-qty')?.value || 0);
+    const unit = row.querySelector('.pr-unit')?.value || '';
+    const desc = row.querySelector('.pr-desc')?.value || '';
+    const remark = row.querySelector('.pr-remark')?.value || '';
+
+    items.push({ stk, qty, unit, desc, description: desc, remark, remarks: remark });
+  });
+
+  const pr = { no, date, requester, dept, date_needed, remarks, requested_by, checked_by, recommend_approval, approved_by, items };
+
+  try {
+    // try server save first (use PATCH when editing an existing server-backed record)
+    let serverResp = null;
+    if (editingPRId) {
+      const existingList = readList('pr');
+      const existing = existingList.find(it => Number(it.id) === Number(editingPRId));
+      if (existing && existing.server_id) {
+        // update remote resource
+        serverResp = await updateServer('pr', existing.server_id, pr, null);
+      } else {
+        serverResp = await createServer('pr', pr, null);
+      }
+    } else {
+      serverResp = await createServer('pr', pr, null);
+    }
+    if (serverResp && serverResp.no) {
+      const list = readList('pr');
+      if (editingPRId) {
+        const idx = list.findIndex(it => Number(it.id) === Number(editingPRId));
+        if (idx !== -1) list.splice(idx,1);
+        editingPRId = null;
+      }
+      const localId = generateId('pr');
+      // ensure signature fields are preserved in cached copy even if server response omitted them
+      serverResp.requested_by = serverResp.requested_by || requested_by;
+      serverResp.checked_by = serverResp.checked_by || checked_by;
+      serverResp.recommend_approval = serverResp.recommend_approval || recommend_approval;
+      serverResp.approved_by = serverResp.approved_by || approved_by;
+      serverResp.remarks = serverResp.remarks || remarks;
+      serverResp.local_id = localId;
+      serverResp.id = localId;
+      list.push(serverResp);
+      writeList('pr', list);
+      storage.setItem(KEYS.PR_NEXT, incrementSerial(no));
+      renderList('pr');
+      alert('Purchase Requisition saved to server and cached locally.');
+      closeForm();
+      return;
+    }
+
+    // fallback local save
+    const list = readList('pr');
+    if (editingPRId) {
+      const idx = list.findIndex(it => Number(it.id) === Number(editingPRId));
+      if (idx === -1) throw new Error('PR not found');
+      pr.id = editingPRId;
+      // merge rather than replace so we keep other cached/server metadata
+      const merged = Object.assign({}, list[idx], pr);
+      // server refused update (405) — keep local edits authoritative until sync
+      if (merged.server_id) delete merged.server_id;
+      merged._pending_sync = true;
+      list[idx] = merged;
+      writeList('pr', list);
+      editingPRId = null;
+      alert('Purchase Requisition updated locally!');
+      // render from local cache to avoid server overriding our edit
+      renderListLocal('pr');
+      closeForm();
+      return;
+    }
+    pr.id = generateId('pr');
+    list.push(pr);
+    writeList('pr', list);
+    storage.setItem(KEYS.PR_NEXT, incrementSerial(no));
+    alert('Purchase Requisition saved locally!');
+    renderList('pr');
+    closeForm();
+  } catch (err) {
+    console.error('Error saving PR:', err);
+    alert('Error saving PR. See console for details.');
+  }
+}
+
+// function rpPrepare() {
+//   const next = storage.getItem(KEYS.RP_NEXT);
+//   document.getElementById('rp-no').value = next;
+//   document.getElementById('rp-date').valueAsDate = new Date();
+//   document.getElementById('rp-payee').value = '';
+//   document.getElementById('rp-tin').value = '';
+//   document.querySelectorAll('input[name="rp-action"]').forEach(r => r.checked = false);
+//   document.querySelectorAll('.rp-mode').forEach(c => c.checked = false);
+//   document.querySelectorAll('.rp-payment-for').forEach(c => c.checked = false);
+//   document.getElementById('rp-payment-for-other').value = '';
+//   document.getElementById('rp-amount').value = '';
+//   document.getElementById('rp-remarks').value = '';
+//   document.getElementById('rp-requested-by').value = '';
+//   document.getElementById('rp-checked-by').value = '';
+//   document.getElementById('rp-recommend-approval').value = '';
+//   document.getElementById('rp-approved-by').value = '';
+//   // clear invoice state when preparing a new RFP
+//   clearRPInvoice();
+//   storage.setItem('hd_last_module', 'rp');
+// }
+
+function rpPrepare() {
+  const next = storage.getItem(KEYS.RP_NEXT);
+  document.getElementById('rp-no').value = next;
+  document.getElementById('rp-date').valueAsDate = new Date();
+  document.getElementById('rp-payee').value = '';
+  document.getElementById('rp-tin').value = '';
+  document.querySelectorAll('input[name="rp-action"]').forEach(r => r.checked = false);
+  document.querySelectorAll('.rp-mode').forEach(c => c.checked = false);
+  document.querySelectorAll('.rp-payment-for').forEach(c => c.checked = false);
+  
+  const paymentOtherEl = document.getElementById('rp-payment-for-other');
+  if (paymentOtherEl) paymentOtherEl.value = '';
+  
+  const vatEl = document.getElementById('rp-vat');
+  const nonVatEl = document.getElementById('rp-non-vat');
+  if (vatEl) vatEl.checked = false;
+  if (nonVatEl) nonVatEl.checked = false;
+  
+  document.getElementById('rp-amount').value = '';
+  document.getElementById('rp-remarks').value = '';
+  document.getElementById('rp-requested-by').value = '';
+  document.getElementById('rp-checked-by').value = '';
+  document.getElementById('rp-recommend-approval').value = '';
+  
+  clearRPInvoice();
+  storage.setItem('hd_last_module', 'rp');
+}
+
+// async function saveRP() {
+//   const no = document.getElementById('rp-no').value;
+//   const date = document.getElementById('rp-date').value || new Date().toISOString().slice(0,10);
+//   const payee = document.getElementById('rp-payee').value;
+//   const tin = document.getElementById('rp-tin').value;
+
+//   const action_required = document.querySelector('input[name="rp-action"]:checked')?.value || null;
+//   const modes = Array.from(document.querySelectorAll('.rp-mode:checked')).map(c => c.value).join(', ');
+//   const mode_of_payment = modes || null;
+
+//   const paymentFor = Array.from(document.querySelectorAll('.rp-payment-for:checked')).map(c => c.value);
+//   if (paymentFor.includes('OTHERS')) {
+//     paymentFor[paymentFor.indexOf('OTHERS')] = document.getElementById('rp-payment-for-other').value || 'OTHERS';
+//   }
+//   const payment_for = paymentFor.join(', ') || null;
+
+//   const amount = parseFloat(document.getElementById('rp-amount').value || 0);
+//   const remarks = document.getElementById('rp-remarks').value;
+//   const requested_by = document.getElementById('rp-requested-by').value;
+//   const checked_by = document.getElementById('rp-checked-by').value;
+//   const recommend_approval = document.getElementById('rp-recommend-approval').value;
+//   const approved_by = document.getElementById('rp-approved-by').value;
+
+//   // ensure rpInvoiceData populated if user selected a file but didn't trigger preview
+//   const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0];
+//   const invoice_filename = invoiceFile ? invoiceFile.name : null;
+//   if (invoiceFile && !rpInvoiceData) {
+//     try {
+//       if (invoiceFile.size > 5 * 1024 * 1024) {
+//         alert('Invoice file must be less than 5MB');
+//         return;
+//       }
+//       rpInvoiceData = await fileToDataURL(invoiceFile);
+//     } catch (e) {
+//       console.error('Failed to read invoice before save:', e);
+//       alert('Unable to read invoice file');
+//       return;
+//     }
+//   }
+
+//   // Build payload: include invoice_image ONLY when it's a proper data: URL
+//   const rp = {
+//     no, date, payee, tin, action_required, mode_of_payment, payment_for,
+//     amount, remarks, requested_by, checked_by, recommend_approval, approved_by
+//   };
+//   // set status depending on presence of invoice image
+//   rp.status = (rpInvoiceData && typeof rpInvoiceData === 'string') ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+
+//   if (rpInvoiceData && typeof rpInvoiceData === 'string' && rpInvoiceData.startsWith('data:')) {
+//     rp.invoice_image = rpInvoiceData;
+//     rp.invoice_filename = invoice_filename || null;
+//   } else {
+//     // do not include invoice_image key to avoid sending object URLs or invalid values
+//     // if you want to clear existing invoice on edit, set rp.invoice_image = null explicitly
+//   }
+
+//   try {
+//     // attempt server save using multipart (for invoice file)
+//     const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0] || null;
+//     const files = invoiceFile ? { invoice: invoiceFile } : null;
+//     const serverResp = await createServer('rp', rp, files);
+//     if (serverResp && serverResp.no) {
+//       const list = readList('rp');
+//       if (editingRPId) {
+//         const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+//         if (idx !== -1) list.splice(idx,1);
+//         editingRPId = null;
+//       }
+//       const localId = generateId('rp');
+//       serverResp.local_id = localId;
+//       serverResp.id = localId;
+//       // server may return invoice URL as invoice (invoice field)
+//       if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
+//       list.push(serverResp);
+//       writeList('rp', list);
+//       storage.setItem(KEYS.RP_NEXT, incrementSerial(no));
+//       renderList('rp');
+//       alert('Request for Payment saved to server and cached locally.');
+//       closeForm();
+//       return;
+//     }
+
+//     // fallback: local save
+//     const list = readList('rp');
+//     if (editingRPId) {
+//       const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+//       if (idx === -1) throw new Error('RP not found');
+//       rp.id = editingRPId;
+//       const existing = list[idx] || {};
+//       if (!rp.invoice_image && existing.invoice_image) {
+//         rp.invoice_image = existing.invoice_image;
+//         rp.invoice_filename = existing.invoice_filename;
+//       }
+//       list[idx] = rp;
+//       writeList('rp', list);
+//       editingRPId = null;
+//       alert('Request for Payment updated locally!');
+//       renderList('rp');
+//       closeForm();
+//       return;
+//     }
+//     rp.id = generateId('rp');
+//     list.push(rp);
+//     writeList('rp', list);
+//     storage.setItem(KEYS.RP_NEXT, incrementSerial(no));
+//     editingRPId = null;
+//     alert('Request for Payment saved locally!');
+//     renderList('rp');
+//     closeForm();
+//   } catch (err) {
+//     console.error("Error saving RP:", err);
+//     alert("Error saving RP. See console for details.");
+//   }
+// }
+
+async function saveRP() {
+  const no = document.getElementById('rp-no').value;
+  const date = document.getElementById('rp-date').value || new Date().toISOString().slice(0,10);
+  const payee = document.getElementById('rp-payee').value;
+  const tin = document.getElementById('rp-tin').value;
+
+  const action_required = document.querySelector('input[name="rp-action"]:checked')?.value || null;
+  const modes = Array.from(document.querySelectorAll('.rp-mode:checked')).map(c => c.value).join(', ');
+  const mode_of_payment = modes || null;
+
+  const paymentFor = Array.from(document.querySelectorAll('.rp-payment-for:checked')).map(c => c.value);
+  if (paymentFor.includes('OTHERS')) {
+    paymentFor[paymentFor.indexOf('OTHERS')] = document.getElementById('rp-payment-for-other').value || 'OTHERS';
+  }
+  const payment_for = paymentFor.join(', ') || null;
+
+  // VAT selection
+  const vat = document.getElementById('rp-vat')?.checked ? 'VAT' : (document.getElementById('rp-non-vat')?.checked ? 'NON-VAT' : null);
+
+  const amount = parseFloat(document.getElementById('rp-amount').value || 0);
+  const remarks = document.getElementById('rp-remarks').value;
+  const requested_by = document.getElementById('rp-requested-by').value;
+  const checked_by = document.getElementById('rp-checked-by').value;
+  const recommend_approval = document.getElementById('rp-recommend-approval').value;
+  // Note: "Approved By" field was removed from the form — skip reading it
+
+  // ensure rpInvoiceData populated if user selected a file but didn't trigger preview
+  const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0];
+  const invoice_filename = invoiceFile ? invoiceFile.name : null;
+  if (invoiceFile && !rpInvoiceData) {
+    try {
+      if (invoiceFile.size > 5 * 1024 * 1024) {
+        alert('Invoice file must be less than 5MB');
+        return;
+      }
+      rpInvoiceData = await fileToDataURL(invoiceFile);
+    } catch (e) {
+      console.error('Failed to read invoice before save:', e);
+      alert('Unable to read invoice file');
+      return;
+    }
+  }
+
+  // Build payload
+  const rp = {
+    no, date, payee, tin, action_required, mode_of_payment, payment_for,
+    amount, remarks, requested_by, checked_by, recommend_approval, vat
+  };
+  
+  // Preserve items if editing
+  if (editingRPId) {
+    const list = readList('rp');
+    const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+    const existing = idx !== -1 ? list[idx] : null;
+    if (existing && existing.items) {
+      rp.items = existing.items;
+    }
+  }
+  
+  rp.status = (rpInvoiceData && typeof rpInvoiceData === 'string') ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+
+  if (rpInvoiceData && typeof rpInvoiceData === 'string' && rpInvoiceData.startsWith('data:')) {
+    rp.invoice_image = rpInvoiceData;
+    rp.invoice_filename = invoice_filename || null;
+  }
+
+  try {
+    const invoiceFile2 = document.getElementById('rp-invoice-file')?.files?.[0] || null;
+    const files = invoiceFile2 ? { invoice: invoiceFile2 } : null;
+    // if editing and existing has server_id, PATCH instead of POST to avoid duplicates
+    let serverResp = null;
+    if (editingRPId) {
+      const existingList = readList('rp');
+      const existing = existingList.find(it => Number(it.id) === Number(editingRPId));
+      if (existing && existing.server_id) {
+        serverResp = await updateServer('rp', existing.server_id, rp, files);
+      } else {
+        serverResp = await createServer('rp', rp, files);
+      }
+    } else {
+      serverResp = await createServer('rp', rp, files);
+    }
+    
+    if (serverResp && serverResp.no) {
+      const list = readList('rp');
+      if (editingRPId) {
+        const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+        if (idx !== -1) list.splice(idx,1);
+        editingRPId = null;
+      }
+      const localId = generateId('rp');
+      // preserve signature/fields if server omitted them
+      serverResp.requested_by = serverResp.requested_by || rp.requested_by;
+      serverResp.checked_by = serverResp.checked_by || rp.checked_by;
+      serverResp.recommend_approval = serverResp.recommend_approval || rp.recommend_approval;
+      serverResp.vat = serverResp.vat || rp.vat;
+      serverResp.remarks = serverResp.remarks || rp.remarks;
+      // determine status based on presence of invoice (server may return invoice_url)
+      if (serverResp.invoice_url || rp.invoice_image) {
+        serverResp.status = 'READY_FOR_PAYMENT';
+      } else {
+        serverResp.status = serverResp.status || rp.status || 'PENDING_INVOICE';
+      }
+      // map invoice_url to invoice_image for local preview and keep filename
+      if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
+      serverResp.invoice_filename = serverResp.invoice_filename || invoice_filename || null;
+      serverResp.local_id = localId;
+      serverResp.id = localId;
+      if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
+      list.push(serverResp);
+      writeList('rp', list);
+      storage.setItem(KEYS.RP_NEXT, incrementSerial(no));
+      renderList('rp');
+      alert('Request for Payment saved to server and cached locally.');
+      closeForm();
+      return;
+    }
+
+    // fallback: local save
+    const list = readList('rp');
+    if (editingRPId) {
+      const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+      if (idx === -1) throw new Error('RP not found');
+      rp.id = editingRPId;
+      const existing = list[idx] || {};
+      if (!rp.invoice_image && existing.invoice_image) {
+        rp.invoice_image = existing.invoice_image;
+        rp.invoice_filename = existing.invoice_filename;
+      }
+      // merge so we don't lose other metadata, but drop server_id since server update failed
+      const merged = Object.assign({}, existing, rp);
+      if (merged.server_id) delete merged.server_id;
+      merged._pending_sync = true;
+      list[idx] = merged;
+      writeList('rp', list);
+      editingRPId = null;
+      alert('Request for Payment updated locally!');
+      // render local cache to avoid server list replacing our edits
+      renderListLocal('rp');
+      closeForm();
+      return;
+    }
+    rp.id = generateId('rp');
+    list.push(rp);
+    writeList('rp', list);
+    storage.setItem(KEYS.RP_NEXT, incrementSerial(no));
+    editingRPId = null;
+    alert('Request for Payment saved locally!');
+    renderList('rp');
+    closeForm();
+  } catch (err) {
+    console.error("Error saving RP:", err);
+    alert("Error saving RP. See console for details.");
+  }
+}
+
+// ADD: Edit & Delete handlers for Request for Payment
+// async function editRP(id) {
+//   try {
+//     editingRPId = id;
+//     // IMPORTANT: Set hd_last_module so closeForm() knows to return to RP list
+//     storage.setItem('hd_last_module', 'rp');
+//     let rp = await fetchFromServerOrCache('rp', id);
+//     if (!rp) rp = findById('rp', id);
+//     if (!rp) throw new Error('RP not found');
+
+//     document.getElementById("rp-no").value = rp.no || '';
+//     document.getElementById("rp-date").value = rp.date || '';
+//     document.getElementById("rp-payee").value = rp.payee || '';
+//     document.getElementById("rp-tin").value = rp.tin || '';
+//     document.getElementById("rp-amount").value = rp.amount ?? '';
+//     document.getElementById("rp-remarks").value = rp.remarks || '';
+//     document.getElementById("rp-requested-by").value = rp.requested_by || '';
+//     document.getElementById("rp-checked-by").value = rp.checked_by || '';
+//     document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
+//     document.getElementById("rp-approved-by").value = rp.approved_by || '';
+
+//     // radio/checkbox state
+//     document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+//     if (rp.mode_of_payment) {
+//       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
+//     } else {
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
+//     }
+
+//     if (rp.payment_for) {
+//       const pf = rp.payment_for.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
+//       // set "others" text if provided
+//       const others = pf.find(v => v && !['SUPPLIER','MACHINERY','REPAIR & MAINTENANCE','UTILITY','OTHERS'].includes(v.toUpperCase()));
+//       document.getElementById('rp-payment-for-other').value = others || '';
+//     } else {
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
+//       document.getElementById('rp-payment-for-other').value = '';
+//     }
+
+//     // Preview existing invoice (do NOT set rpInvoiceData to the dataURL, only for preview)
+//     if (rp.invoice_image) {
+//       // rp.invoice_image is a data:... URL
+//       const img = document.getElementById('rp-invoice-img');
+//       if (img) { img.src = rp.invoice_image; img.style.display = 'block'; }
+//       rpInvoicePreviewUrl = null;
+//       rpInvoiceData = null;
+//     } else {
+//       const img = document.getElementById('rp-invoice-img');
+//       if (img) { img.src = ''; img.style.display = 'none'; }
+//       rpInvoicePreviewUrl = null;
+//       rpInvoiceData = null;
+//     }
+
+//     // show form
+//     hideAll();
+//     const f = document.getElementById('form-rp');
+//     if (f) f.style.display = 'block';
+//   } catch (err) {
+//     console.error('editRP error:', err);
+//     alert('Error loading Request for Payment for edit: ' + (err.message || err));
+//     editingRPId = null;
+//   }
+// }
+
+async function editRP(id) {
+  try {
+    editingRPId = id;
+    storage.setItem('hd_last_module', 'rp');
+    let rp = await fetchFromServerOrCache('rp', id);
+    if (!rp) rp = findById('rp', id);
+    if (!rp) throw new Error('RP not found');
+
+    // Set values with null checks
+    const setVal = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value || '';
+      else console.warn(`Element ${id} not found`);
+    };
+
+    setVal('rp-no', rp.no);
+    setVal('rp-date', rp.date);
+    setVal('rp-payee', rp.payee);
+    setVal('rp-tin', rp.tin);
+    setVal('rp-amount', rp.amount ?? '');
+    setVal('rp-remarks', rp.remarks);
+    setVal('rp-requested-by', rp.requested_by);
+    setVal('rp-checked-by', rp.checked_by);
+    setVal('rp-recommend-approval', rp.recommend_approval);
+    setVal('rp-payment-for-other', '');
+
+    // radio/checkbox state
+    document.querySelectorAll('input[name="rp-action"]').forEach(el => {
+      el.checked = (el.value === rp.action_required);
+    });
+    
+    if (rp.mode_of_payment) {
+      const modes = rp.mode_of_payment.split(',').map(s => s.trim());
+      document.querySelectorAll('.rp-mode').forEach(el => {
+        el.checked = modes.includes(el.value);
+      });
+    } else {
+      document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
+    }
+
+    if (rp.payment_for) {
+      const pf = rp.payment_for.split(',').map(s => s.trim());
+      document.querySelectorAll('.rp-payment-for').forEach(el => {
+        el.checked = pf.includes(el.value);
+      });
+      const others = pf.find(v => v && !['SUPPLIER','MACHINERY','REPAIR & MAINTENANCE','UTILITY','OTHERS'].includes(v.toUpperCase()));
+      setVal('rp-payment-for-other', others);
+    } else {
+      document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
+      setVal('rp-payment-for-other', '');
+    }
+
+    // VAT checkboxes
+    const vatEl = document.getElementById('rp-vat');
+    const nonVatEl = document.getElementById('rp-non-vat');
+    if (vatEl && nonVatEl) {
+      if (rp.vat === 'VAT') {
+        vatEl.checked = true;
+        nonVatEl.checked = false;
+      } else if (rp.vat === 'NON-VAT') {
+        vatEl.checked = false;
+        nonVatEl.checked = true;
+      } else {
+        vatEl.checked = false;
+        nonVatEl.checked = false;
+      }
+    }
+
+    // Preview existing invoice
+    const img = document.getElementById('rp-invoice-img');
+    if (rp.invoice_image && img) {
+      img.src = rp.invoice_image; 
+      img.style.display = 'block';
+      rpInvoicePreviewUrl = null;
+      rpInvoiceData = null;
+    } else if (img) {
+      img.src = ''; 
+      img.style.display = 'none';
+      rpInvoicePreviewUrl = null;
+      rpInvoiceData = null;
+    }
+
+    hideAll();
+    const f = document.getElementById('form-rp');
+    if (f) f.style.display = 'block';
+  } catch (err) {
+    console.error('editRP error:', err);
+    console.error('Error stack:', err.stack);
+    alert('Error loading Request for Payment for edit: ' + (err.message || err));
+    editingRPId = null;
+  }
+}
+
+// async function deleteRP(id) {
+//   if (!confirm('Delete this Request for Payment?')) return;
+//   try {
+//     const list = readList('rp');
+//     const idx = list.findIndex(it => Number(it.id) === Number(id));
+//     if (idx === -1) { alert('RP not found'); return; }
+//     const item = list[idx];
+//     try {
+//       if (item && item.server_id) await deleteServer('rp', item.server_id);
+//       else await deleteServer('rp', id);
+//     } catch (e) {
+//       console.warn('Server delete failed, removing local cache anyway', e);
+//     }
+//     list.splice(idx,1);
+//     writeList('rp', list);
+//     alert('Deleted successfully');
+//     renderList('rp');
+//   } catch (err) {
+//     console.error('deleteRP error:', err);
+//     alert('Error deleting Request for Payment');
+//   }
+// }
+
+async function deleteRP(id) {
+  if (!confirm('Delete this Request for Payment?')) return;
+  try {
+    const list = readList('rp');
+    const idx = list.findIndex(it => Number(it.id) === Number(id));
+    if (idx === -1) { alert('RP not found'); return; }
+    const item = list[idx];
+    try {
+      if (item && item.server_id) await deleteServer('rp', item.server_id);
+      else await deleteServer('rp', id);
+    } catch (e) {
+      console.warn('Server delete failed, removing local cache anyway', e);
+    }
+    list.splice(idx,1);
+    writeList('rp', list);
+    alert('Deleted successfully');
+    renderList('rp');
+  } catch (err) {
+    console.error('deleteRP error:', err);
+    alert('Error deleting Request for Payment');
+  }
+}
+
+
+// New: fetch and display invoice blob in modal
+// async function viewRPInvoice(id) {
+//   try {
+//     const rp = findById('rp', id);
+//     if (!rp) { alert('RP not found'); return; }
+//     if (!rp.invoice_image) { alert('No invoice attached for this RFP.'); return; }
+//     const url = rp.invoice_image; // data URL
+//     const img = document.getElementById('invoice-modal-img');
+//     const download = document.getElementById('invoice-modal-download');
+//     if (img) img.src = url;
+//     if (download) {
+//       download.href = url;
+//       download.download = rp.invoice_filename || (rp.no || 'invoice') + '.jpg';
+//     }
+//     const modal = document.getElementById('invoice-modal');
+//     if (modal) modal.style.display = 'flex';
+//   } catch (err) {
+//     console.error('viewRPInvoice error:', err);
+//     alert('Unable to load invoice. See console for details.');
+//   }
+// }
+
+// function closeInvoiceModal() {
+//   const modal = document.getElementById('invoice-modal');
+//   const img = document.getElementById('invoice-modal-img');
+//   if (img) {
+//     // revoke blob URL if set
+//     try { URL.revokeObjectURL(img.src); } catch(e){}
+//     img.src = '';
+//   }
+//   const download = document.getElementById('invoice-modal-download');
+//   if (download) download.href = '#';
+//   if (modal) modal.style.display = 'none';
+// }
+
+async function viewRPInvoice(id) {
+  try {
+    const rp = ensureRPComputedFields(findById('rp', id));
+    if (!rp) { alert('RP not found'); return; }
+    const url = rp.invoice_image || rp.invoice_url;
+    if (!url) { alert('No invoice attached for this RFP.'); return; }
+    const img = document.getElementById('invoice-modal-img');
+    const download = document.getElementById('invoice-modal-download');
+    if (img) img.src = url;
+    if (download) {
+      download.href = url;
+      download.download = rp.invoice_filename || (rp.no || 'invoice') + '.jpg';
+    }
+    const modal = document.getElementById('invoice-modal');
+    if (modal) modal.style.display = 'flex';
+  } catch (err) {
+    console.error('viewRPInvoice error:', err);
+    alert('Unable to load invoice. See console for details.');
+  }
+}
+
+function closeInvoiceModal() {
+  const modal = document.getElementById('invoice-modal');
+  const img = document.getElementById('invoice-modal-img');
+  if (img) {
+    try { URL.revokeObjectURL(img.src); } catch(e){}
+    img.src = '';
+  }
+  const download = document.getElementById('invoice-modal-download');
+  if (download) download.href = '#';
+  if (modal) modal.style.display = 'none';
+}
+
+// updateServer: PATCH existing resource on server (supports multipart when files present)
+async function updateServer(mod, id, payload, files) {
+  const url = apiUrl(mod) + id + '/';
+  try {
+    let opts = { method: 'PATCH', credentials: 'same-origin' };
+    if (files) {
+      const fd = new FormData();
+      for (const k in payload) {
+        if (payload[k] !== undefined && payload[k] !== null) fd.append(k, payload[k]);
+      }
+      if (files.invoice) fd.append('invoice', files.invoice, files.invoice.name);
+      opts.body = fd;
+    } else {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(payload);
+    }
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      // If server does not allow PATCH, return null quietly so caller can fallback to local save
+      if (res.status === 405) return null;
+      throw new Error('HTTP ' + res.status);
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn('updateServer failed for', mod, id, err);
+    return null;
+  }
+}
+
+// Render list directly from local cache (skip server fetch). Used when local edits
+// should be visible immediately and server cannot accept updates.
+function renderListLocal(mod) {
+  const area = document.getElementById(mod + '-list-area');
+  let list = readList(mod) || [];
+  if (mod === 'rp') {
+    list = list.map(ensureRPComputedFields);
+  }
+  const poCache = (mod === 'grn') ? (readList('po') || []) : null;
+  if (!list || list.length === 0) {
+    area.innerHTML = '<div class="small" style="padding:12px">No records</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr>';
+  if (mod === 'po') html += '<th>PO No.</th><th>Date</th><th>Supplier</th><th>Dept</th><th>Total</th><th></th>';
+  if (mod === 'rp') html += '<th>RP No.</th><th>Date</th><th>Payee</th><th>Amount</th><th>Status</th><th></th>';
+  if (mod === 'pr') html += '<th>MRF No.</th><th>Date</th><th>Requester</th><th>Dept</th><th></th>';
+  if (mod === 'grn') html += '<th>GRN No.</th><th>Date</th><th>PO</th><th>Received By</th><th></th>';
+  html += '</tr></thead><tbody>';
+
+  list.forEach((it) => {
+    if (mod === 'po') {
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.supplier}</td><td>${it.dept||''}</td><td>₱ ${Number(it.total||0).toFixed(2)}</td><td>
+        <button class="btn" onclick="downloadPOFromDB(${it.id})">PDF</button>
+        <button class="btn" onclick="editPO(${it.id})">Edit</button>
+        <button class="btn danger" onclick="deletePO(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+    if (mod === 'rp') {
+      const normalized = ensureRPComputedFields(it) || {};
+      const status = normalized.status || '';
+      html += `<tr><td>${normalized.no}</td><td>${normalized.date}</td><td>${normalized.payee}</td><td>₱ ${Number(normalized.amount||0).toFixed(2)}</td><td>${status}</td><td>
+        <button class="btn" onclick="downloadRPFromDB(${it.id})">PDF</button>
+        <button class="btn" onclick="editRP(${it.id})">Edit</button>
+        <button class="btn" onclick="viewRPInvoice(${it.id})">View Invoice</button>
+        <button class="btn danger" onclick="deleteRP(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+    if (mod === 'pr') {
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.requester}</td><td>${it.dept||''}</td><td>
+        <button class="btn" onclick="downloadPRFromDB(${it.id})">PDF</button>
+        <button class="btn" onclick="editPR(${it.id})">Edit</button>
+        <button class="btn danger" onclick="deletePR(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+    if (mod === 'grn') {
+      const linkedPOText = resolvePONumber(it.linked_po, poCache);
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${linkedPOText}</td><td>${it.received_by||''}</td><td>
+        <button class="btn" onclick="editGRN(${it.id})">Edit</button>
+        <button class="btn danger" onclick="deleteGRN(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+  });
+
+  html += '</tbody></table>';
+  area.innerHTML = html;
+}

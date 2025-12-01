@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<!-- HOMEPAGE -->
+<section id="home" class="card active">
+  <h2 class="center">Procurement Suite</h2>
+  <p class="center small">Hospitality refined- within and beyond our walls.</p>
+
+  <div class="modules">
+    <button class="module" onclick="showModule('po')">
+      <div class="module-title">Purchase Order</div>
+      <div class="module-sub">Create and manage P.O.s</div>
+    </button>
+
+    <button class="module" onclick="showModule('rp')">
+      <div class="module-title">Request for Payment</div>
+      <div class="module-sub">Request payments</div>
+    </button>
+
+    <button class="module" onclick="showModule('pr')">
+      <div class="module-title">Purchase Requisition</div>
+      <div class="module-sub">Internal requisitions</div>
+    </button>
+
+    <button class="module" onclick="showModule('grn')">
+      <div class="module-title">Goods Received Note</div>
+      <div class="module-sub">Record received goods</div>
+    </button>
+  </div>
+</section>
+
+<!-- Include module panels -->
+{% include 'purchase_orders/panel.html' %}
+{% include 'request_payments/panel.html' %}
+{% include 'purchase_requisitions/panel.html' %}
+{% include 'goods_received/panel.html' %}
+
+<!-- Include module forms -->
+{% include 'purchase_orders/form.html' %}
+{% include 'request_payments/form.html' %}
+{% include 'purchase_requisitions/form.html' %}
+{% include 'goods_received/form.html' %}
+
+<!-- Include print templates -->
+{% include 'purchase_orders/print.html' %}
+{% include 'request_payments/print.html' %}
+{% include 'purchase_requisitions/print.html' %}
+{% endblock %}

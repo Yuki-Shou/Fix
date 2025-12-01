@@ -1,0 +1,24 @@
+{% load static %}
+<section id="panel-grn" class="card panel" style="display:none">
+  <div class="panel-top">
+    <button class="link" onclick="goHome()">← Back</button>
+    <div class="right">
+      <button class="btn" onclick="openCreate('grn')">+ New GRN</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <select id="grn-filter" onchange="renderList('grn')">
+      <option value="all">All</option>
+      <option value="weekly">Weekly</option>
+      <option value="monthly">Monthly</option>
+      <option value="yearly">Yearly</option>
+    </select>
+    <input type="date" id="grn-from" onchange="renderList('grn')">
+    <input type="date" id="grn-to" onchange="renderList('grn')">
+    <input placeholder="Search PO or No" id="grn-search" oninput="renderList('grn')">
+    <input placeholder="Search department" id="grn-dept-search" oninput="renderList('grn')">
+  </div>
+
+  <div id="grn-list-area"></div>
+</section>

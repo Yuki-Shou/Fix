@@ -1,0 +1,43 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Hotel Dulcee — Purchasing System{% endblock %}</title>
+
+  <!-- Theme font (local offline copy) -->
+  <link rel="stylesheet" href="{% static 'vendor/inter/inter.css' %}">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="{% static 'style.css' %}">
+
+  <!-- jsPDF (local offline copy) -->
+  <script src="{% static 'vendor/jspdf/jspdf.umd.min.js' %}"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <img src="{% static 'logo.png' %}" alt="Hotel Dulcee Logo" id="logo" class="logo">
+      <div class="title">
+        <h1>HOTEL DULCEE</h1>
+        <div class="subtitle">Requisition_Inventory_Purchasing System</div>
+      </div>
+    </header>
+
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">© Hotel Dulcee | Requisition_Inventory_Purchasing System</footer>
+  </div>
+
+  <!-- html2pdf library (local offline copy) -->
+  <script src="{% static 'vendor/html2pdf/html2pdf.bundle.min.js' %}"></script>
+
+  <!-- JS -->
+  <script src="{% static 'script.js' %}"></script>
+  
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
