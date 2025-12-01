@@ -731,54 +731,74 @@ function generatePOPdfFromForm() {
     }
   })();
 }
-
+// ===== REQUEST PAYMENT (RP) - HTML2PDF =====
 // function generateRPPdfFromForm() {
 //   const print = document.getElementById("print-rp");
-  
-//   if (!print) {
-//     alert('Print template not found');
-//     return;
-//   }
+//   if (!print) { alert('Print template not found'); return; }
 
-//   document.getElementById("p_rp_no").textContent = document.getElementById("rp-no").value || '';
-//   document.getElementById("p_rp_date").textContent = document.getElementById("rp-date").value || '';
-//   document.getElementById("p_rp_payee").textContent = document.getElementById("rp-payee").value || '';
-//   document.getElementById("p_rp_tin").textContent = document.getElementById("rp-tin").value || '';
-//   document.getElementById("p_rp_amount").textContent = `₱ ${parseFloat(document.getElementById("rp-amount").value || 0).toFixed(2)}`;
-//   document.getElementById("p_rp_remarks").textContent = document.getElementById("rp-remarks").value || '';
+//   const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || ''; };
+
+//   // Basic info
+//   setText('p_rp_no', document.getElementById("rp-no")?.value || '');
+//   setText('p_rp_date', document.getElementById("rp-date")?.value || '');
+//   setText('p_rp_payee', document.getElementById("rp-payee")?.value || '');
+//   setText('p_rp_tin', document.getElementById("rp-tin")?.value || '');
+//   setText('p_rp_amount', `₱ ${parseFloat(document.getElementById("rp-amount")?.value || 0).toFixed(2)}`);
+//   setText('p_rp_remarks', document.getElementById("rp-remarks")?.value || '');
+
+//   // Signature fields
+//   setText('p_rp_requested', document.getElementById("rp-requested-by")?.value || '');
+//   setText('p_rp_checked', document.getElementById("rp-checked-by")?.value || '');
+//   setText('p_rp_recommend', document.getElementById("rp-recommend-approval")?.value || '');
+//   setText('p_rp_approved', document.getElementById("rp-approved-by")?.value || '');
+
+//   // ACTION REQUIRED: map radio inputs to print spans by order instead of hard-coded values
+//   const actionInputs = Array.from(document.querySelectorAll('input[name="rp-action"]'));
+//   const actionChecks = Array.from(document.querySelectorAll('.rp-action-check, .rp-action-check2'));
+//   actionInputs.forEach((inp, i) => {
+//     const span = actionChecks[i];
+//     if (span) span.textContent = inp.checked ? '☒' : '☐';
+//   });
+
+//   // MODES OF PAYMENT: map checkboxes to print spans by index
+//   const modeInputs = Array.from(document.querySelectorAll('.rp-mode'));
+//   const modeChecks = Array.from(document.querySelectorAll('.rp-mode-check'));
+//   modeInputs.forEach((inp, i) => {
+//     const span = modeChecks[i];
+//     if (span) span.textContent = inp.checked ? '☒' : '☐';
+//   });
+
+//   // PAYMENT FOR: map checkboxes to print spans by index
+//   const paymentInputs = Array.from(document.querySelectorAll('.rp-payment-for'));
+//   const paymentChecks = Array.from(document.querySelectorAll('.rp-payment-check'));
+//   paymentInputs.forEach((inp, i) => {
+//     const span = paymentChecks[i];
+//     if (span) span.textContent = inp.checked ? '☒' : '☐';
+//   });
 
 //   print.style.display = 'block';
 //   print.style.visibility = 'visible';
 //   print.style.position = 'relative';
 
-//   setTimeout(() => {
-//     const opt = {
-//       margin: 8,
-//       filename: (document.getElementById("rp-no").value || 'RP') + '.pdf',
-//       image: { type: 'jpeg', quality: 0.98 },
-//       html2canvas: { 
-//         scale: 2, 
-//         useCORS: true, 
-//         logging: false, 
-//         backgroundColor: '#ffffff',
-//         allowTaint: true
-//       },
-//       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-//     };
+//   (async () => {
+//     try {
+//       await waitForResources(print, 5000);
+//       const opt = {
+//         margin: 8,
+//         filename: (document.getElementById("rp-no")?.value || 'RP') + '.pdf',
+//         image: { type: 'jpeg', quality: 0.98 },
+//         html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', allowTaint: true },
+//         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+//       };
 
-//     html2pdf()
-//       .set(opt)
-//       .from(print)
-//       .save()
-//       .then(() => {
-//         print.style.display = 'none';
-//       })
-//       .catch(err => {
-//         console.error('PDF Error:', err);
-//         print.style.display = 'none';
-//         alert('PDF Error: ' + err.message);
-//       });
-//   }, 200);
+//       await html2pdf().set(opt).from(print).save();
+//     } catch (err) {
+//       console.error('PDF Error:', err);
+//       alert('PDF Error: ' + (err && err.message ? err.message : err));
+//     } finally {
+//       print.style.display = 'none';
+//     }
+//   })();
 // }
 
 function generateRPPdfFromForm() {
@@ -801,7 +821,7 @@ function generateRPPdfFromForm() {
   setText('p_rp_recommend', document.getElementById("rp-recommend-approval")?.value || '');
   setText('p_rp_approved', document.getElementById("rp-approved-by")?.value || '');
 
-  // ACTION REQUIRED: map radio inputs to print spans by order instead of hard-coded values
+  // ACTION REQUIRED
   const actionInputs = Array.from(document.querySelectorAll('input[name="rp-action"]'));
   const actionChecks = Array.from(document.querySelectorAll('.rp-action-check, .rp-action-check2'));
   actionInputs.forEach((inp, i) => {
@@ -809,7 +829,7 @@ function generateRPPdfFromForm() {
     if (span) span.textContent = inp.checked ? '☒' : '☐';
   });
 
-  // MODES OF PAYMENT: map checkboxes to print spans by index
+  // MODES OF PAYMENT
   const modeInputs = Array.from(document.querySelectorAll('.rp-mode'));
   const modeChecks = Array.from(document.querySelectorAll('.rp-mode-check'));
   modeInputs.forEach((inp, i) => {
@@ -817,13 +837,20 @@ function generateRPPdfFromForm() {
     if (span) span.textContent = inp.checked ? '☒' : '☐';
   });
 
-  // PAYMENT FOR: map checkboxes to print spans by index
+  // PAYMENT FOR
   const paymentInputs = Array.from(document.querySelectorAll('.rp-payment-for'));
   const paymentChecks = Array.from(document.querySelectorAll('.rp-payment-check'));
   paymentInputs.forEach((inp, i) => {
     const span = paymentChecks[i];
     if (span) span.textContent = inp.checked ? '☒' : '☐';
   });
+
+  // VAT
+  const vatChecks = Array.from(document.querySelectorAll('.rp-vat-check'));
+  const vatInput = document.getElementById('rp-vat');
+  const nonVatInput = document.getElementById('rp-non-vat');
+  if (vatChecks[0]) vatChecks[0].textContent = vatInput?.checked ? '☒' : '☐';
+  if (vatChecks[1]) vatChecks[1].textContent = nonVatInput?.checked ? '☒' : '☐';
 
   print.style.display = 'block';
   print.style.visibility = 'visible';
@@ -1160,6 +1187,27 @@ async function editPR(id) {
   }
 }
 
+function prPrepare() {
+  const next = storage.getItem(KEYS.PR_NEXT);
+  const el = id => document.getElementById(id);
+  if (el('pr-no')) el('pr-no').value = next;
+  if (el('pr-date')) el('pr-date').valueAsDate = new Date();
+  if (el('pr-requester')) el('pr-requester').value = '';
+  if (el('pr-dept')) el('pr-dept').value = '';
+  if (el('pr-needed')) el('pr-needed').value = '';
+  if (el('pr-remarks')) el('pr-remarks').value = '';
+  if (el('pr-requested-by')) el('pr-requested-by').value = '';
+  if (el('pr-checked-by')) el('pr-checked-by').value = '';
+  if (el('pr-recommend-approval')) el('pr-recommend-approval').value = '';
+  if (el('pr-approved-by')) el('pr-approved-by').value = '';
+  if (el('pr-items')) el('pr-items').innerHTML = '';
+  // add first empty item row if helper exists
+  if (typeof prAddItem === 'function') prAddItem();
+  // clear editing state for PR
+  editingPRId = null;
+  storage.setItem('hd_last_module', 'pr');
+}
+
 // Delete Purchase Requisition
 async function deletePR(id) {
   if (!confirm('Delete this Purchase Requisition?')) return;
@@ -1256,14 +1304,64 @@ async function downloadPRFromDB(id) {
   }
 }
 
+// async function downloadRPFromDB(id) {
+//   try {
+//     // try server first (prefer server record when cached)
+//     let rp = await fetchFromServerOrCache('rp', id);
+//     if (!rp) rp = findById('rp', id);
+//     if (!rp) throw new Error('RP not found');
+
+//     // Fill form fields (so generateRPPdfFromForm can read them)
+//     document.getElementById("rp-no").value = rp.no || '';
+//     document.getElementById("rp-date").value = rp.date || '';
+//     document.getElementById("rp-payee").value = rp.payee || '';
+//     document.getElementById("rp-tin").value = rp.tin || '';
+//     document.getElementById("rp-amount").value = rp.amount || '';
+//     document.getElementById("rp-remarks").value = rp.remarks || '';
+//     document.getElementById("rp-requested-by").value = rp.requested_by || '';
+//     document.getElementById("rp-checked-by").value = rp.checked_by || '';
+//     document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
+//     document.getElementById("rp-approved-by").value = rp.approved_by || '';
+
+//     // Restore checkbox/radio states from DB so generateRPPdfFromForm reads them
+//     document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+
+//     if (rp.mode_of_payment) {
+//       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
+//     } else {
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
+//     }
+
+//     if (rp.payment_for) {
+//       const pf = rp.payment_for.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
+//     } else {
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
+//     }
+
+//     // Preview existing invoice if server returned invoice_url
+//     if (rp.invoice_url) {
+//       const img = document.getElementById('rp-invoice-img');
+//       if (img) { img.src = rp.invoice_url; img.style.display = 'block'; }
+//     }
+
+//     // NOW generateRPPdfFromForm can read the restored checkboxes
+//     generateRPPdfFromForm();
+    
+//   } catch (err) {
+//     console.error('downloadRPFromDB Error:', err);
+//     alert('Error loading Request for Payment: ' + err.message);
+//   }
+// }
+
 async function downloadRPFromDB(id) {
   try {
-    // try server first (prefer server record when cached)
     let rp = await fetchFromServerOrCache('rp', id);
     if (!rp) rp = findById('rp', id);
     if (!rp) throw new Error('RP not found');
 
-    // Fill form fields (so generateRPPdfFromForm can read them)
+    // Fill form fields
     document.getElementById("rp-no").value = rp.no || '';
     document.getElementById("rp-date").value = rp.date || '';
     document.getElementById("rp-payee").value = rp.payee || '';
@@ -1275,7 +1373,7 @@ async function downloadRPFromDB(id) {
     document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
     document.getElementById("rp-approved-by").value = rp.approved_by || '';
 
-    // Restore checkbox/radio states from DB so generateRPPdfFromForm reads them
+    // Restore checkbox/radio states
     document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
 
     if (rp.mode_of_payment) {
@@ -1292,13 +1390,24 @@ async function downloadRPFromDB(id) {
       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
     }
 
-    // Preview existing invoice if server returned invoice_url
+    // Restore VAT selection
+    if (rp.vat === 'VAT') {
+      document.getElementById('rp-vat').checked = true;
+      document.getElementById('rp-non-vat').checked = false;
+    } else if (rp.vat === 'NON-VAT') {
+      document.getElementById('rp-vat').checked = false;
+      document.getElementById('rp-non-vat').checked = true;
+    } else {
+      document.getElementById('rp-vat').checked = false;
+      document.getElementById('rp-non-vat').checked = false;
+    }
+
+    // Preview invoice if exists
     if (rp.invoice_url) {
       const img = document.getElementById('rp-invoice-img');
       if (img) { img.src = rp.invoice_url; img.style.display = 'block'; }
     }
 
-    // NOW generateRPPdfFromForm can read the restored checkboxes
     generateRPPdfFromForm();
     
   } catch (err) {
@@ -1307,6 +1416,8 @@ async function downloadRPFromDB(id) {
   }
 }
 
+
+// Add item row to PR items table
 function prAddItem(stk='', qty=1, unit='pcs', desc='', remark='') {
   const tbody = document.getElementById('pr-items');
   if (!tbody) return;
@@ -1678,6 +1789,27 @@ async function savePR() {
   }
 }
 
+// function rpPrepare() {
+//   const next = storage.getItem(KEYS.RP_NEXT);
+//   document.getElementById('rp-no').value = next;
+//   document.getElementById('rp-date').valueAsDate = new Date();
+//   document.getElementById('rp-payee').value = '';
+//   document.getElementById('rp-tin').value = '';
+//   document.querySelectorAll('input[name="rp-action"]').forEach(r => r.checked = false);
+//   document.querySelectorAll('.rp-mode').forEach(c => c.checked = false);
+//   document.querySelectorAll('.rp-payment-for').forEach(c => c.checked = false);
+//   document.getElementById('rp-payment-for-other').value = '';
+//   document.getElementById('rp-amount').value = '';
+//   document.getElementById('rp-remarks').value = '';
+//   document.getElementById('rp-requested-by').value = '';
+//   document.getElementById('rp-checked-by').value = '';
+//   document.getElementById('rp-recommend-approval').value = '';
+//   document.getElementById('rp-approved-by').value = '';
+//   // clear invoice state when preparing a new RFP
+//   clearRPInvoice();
+//   storage.setItem('hd_last_module', 'rp');
+// }
+
 function rpPrepare() {
   const next = storage.getItem(KEYS.RP_NEXT);
   document.getElementById('rp-no').value = next;
@@ -1688,16 +1820,132 @@ function rpPrepare() {
   document.querySelectorAll('.rp-mode').forEach(c => c.checked = false);
   document.querySelectorAll('.rp-payment-for').forEach(c => c.checked = false);
   document.getElementById('rp-payment-for-other').value = '';
+  if (document.getElementById('rp-vat')) document.getElementById('rp-vat').checked = false;
+  if (document.getElementById('rp-non-vat')) document.getElementById('rp-non-vat').checked = false;
   document.getElementById('rp-amount').value = '';
   document.getElementById('rp-remarks').value = '';
   document.getElementById('rp-requested-by').value = '';
   document.getElementById('rp-checked-by').value = '';
   document.getElementById('rp-recommend-approval').value = '';
   document.getElementById('rp-approved-by').value = '';
-  // clear invoice state when preparing a new RFP
   clearRPInvoice();
   storage.setItem('hd_last_module', 'rp');
 }
+
+// async function saveRP() {
+//   const no = document.getElementById('rp-no').value;
+//   const date = document.getElementById('rp-date').value || new Date().toISOString().slice(0,10);
+//   const payee = document.getElementById('rp-payee').value;
+//   const tin = document.getElementById('rp-tin').value;
+
+//   const action_required = document.querySelector('input[name="rp-action"]:checked')?.value || null;
+//   const modes = Array.from(document.querySelectorAll('.rp-mode:checked')).map(c => c.value).join(', ');
+//   const mode_of_payment = modes || null;
+
+//   const paymentFor = Array.from(document.querySelectorAll('.rp-payment-for:checked')).map(c => c.value);
+//   if (paymentFor.includes('OTHERS')) {
+//     paymentFor[paymentFor.indexOf('OTHERS')] = document.getElementById('rp-payment-for-other').value || 'OTHERS';
+//   }
+//   const payment_for = paymentFor.join(', ') || null;
+
+//   const amount = parseFloat(document.getElementById('rp-amount').value || 0);
+//   const remarks = document.getElementById('rp-remarks').value;
+//   const requested_by = document.getElementById('rp-requested-by').value;
+//   const checked_by = document.getElementById('rp-checked-by').value;
+//   const recommend_approval = document.getElementById('rp-recommend-approval').value;
+//   const approved_by = document.getElementById('rp-approved-by').value;
+
+//   // ensure rpInvoiceData populated if user selected a file but didn't trigger preview
+//   const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0];
+//   const invoice_filename = invoiceFile ? invoiceFile.name : null;
+//   if (invoiceFile && !rpInvoiceData) {
+//     try {
+//       if (invoiceFile.size > 5 * 1024 * 1024) {
+//         alert('Invoice file must be less than 5MB');
+//         return;
+//       }
+//       rpInvoiceData = await fileToDataURL(invoiceFile);
+//     } catch (e) {
+//       console.error('Failed to read invoice before save:', e);
+//       alert('Unable to read invoice file');
+//       return;
+//     }
+//   }
+
+//   // Build payload: include invoice_image ONLY when it's a proper data: URL
+//   const rp = {
+//     no, date, payee, tin, action_required, mode_of_payment, payment_for,
+//     amount, remarks, requested_by, checked_by, recommend_approval, approved_by
+//   };
+//   // set status depending on presence of invoice image
+//   rp.status = (rpInvoiceData && typeof rpInvoiceData === 'string') ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+
+//   if (rpInvoiceData && typeof rpInvoiceData === 'string' && rpInvoiceData.startsWith('data:')) {
+//     rp.invoice_image = rpInvoiceData;
+//     rp.invoice_filename = invoice_filename || null;
+//   } else {
+//     // do not include invoice_image key to avoid sending object URLs or invalid values
+//     // if you want to clear existing invoice on edit, set rp.invoice_image = null explicitly
+//   }
+
+//   try {
+//     // attempt server save using multipart (for invoice file)
+//     const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0] || null;
+//     const files = invoiceFile ? { invoice: invoiceFile } : null;
+//     const serverResp = await createServer('rp', rp, files);
+//     if (serverResp && serverResp.no) {
+//       const list = readList('rp');
+//       if (editingRPId) {
+//         const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+//         if (idx !== -1) list.splice(idx,1);
+//         editingRPId = null;
+//       }
+//       const localId = generateId('rp');
+//       serverResp.local_id = localId;
+//       serverResp.id = localId;
+//       // server may return invoice URL as invoice (invoice field)
+//       if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
+//       list.push(serverResp);
+//       writeList('rp', list);
+//       storage.setItem(KEYS.RP_NEXT, incrementSerial(no));
+//       renderList('rp');
+//       alert('Request for Payment saved to server and cached locally.');
+//       closeForm();
+//       return;
+//     }
+
+//     // fallback: local save
+//     const list = readList('rp');
+//     if (editingRPId) {
+//       const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+//       if (idx === -1) throw new Error('RP not found');
+//       rp.id = editingRPId;
+//       const existing = list[idx] || {};
+//       if (!rp.invoice_image && existing.invoice_image) {
+//         rp.invoice_image = existing.invoice_image;
+//         rp.invoice_filename = existing.invoice_filename;
+//       }
+//       list[idx] = rp;
+//       writeList('rp', list);
+//       editingRPId = null;
+//       alert('Request for Payment updated locally!');
+//       renderList('rp');
+//       closeForm();
+//       return;
+//     }
+//     rp.id = generateId('rp');
+//     list.push(rp);
+//     writeList('rp', list);
+//     storage.setItem(KEYS.RP_NEXT, incrementSerial(no));
+//     editingRPId = null;
+//     alert('Request for Payment saved locally!');
+//     renderList('rp');
+//     closeForm();
+//   } catch (err) {
+//     console.error("Error saving RP:", err);
+//     alert("Error saving RP. See console for details.");
+//   }
+// }
 
 async function saveRP() {
   const no = document.getElementById('rp-no').value;
@@ -1714,6 +1962,9 @@ async function saveRP() {
     paymentFor[paymentFor.indexOf('OTHERS')] = document.getElementById('rp-payment-for-other').value || 'OTHERS';
   }
   const payment_for = paymentFor.join(', ') || null;
+
+  // VAT selection
+  const vat = document.getElementById('rp-vat')?.checked ? 'VAT' : (document.getElementById('rp-non-vat')?.checked ? 'NON-VAT' : null);
 
   const amount = parseFloat(document.getElementById('rp-amount').value || 0);
   const remarks = document.getElementById('rp-remarks').value;
@@ -1739,27 +1990,24 @@ async function saveRP() {
     }
   }
 
-  // Build payload: include invoice_image ONLY when it's a proper data: URL
+  // Build payload
   const rp = {
     no, date, payee, tin, action_required, mode_of_payment, payment_for,
-    amount, remarks, requested_by, checked_by, recommend_approval, approved_by
+    amount, remarks, requested_by, checked_by, recommend_approval, approved_by, vat
   };
-  // set status depending on presence of invoice image
+  
   rp.status = (rpInvoiceData && typeof rpInvoiceData === 'string') ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
 
   if (rpInvoiceData && typeof rpInvoiceData === 'string' && rpInvoiceData.startsWith('data:')) {
     rp.invoice_image = rpInvoiceData;
     rp.invoice_filename = invoice_filename || null;
-  } else {
-    // do not include invoice_image key to avoid sending object URLs or invalid values
-    // if you want to clear existing invoice on edit, set rp.invoice_image = null explicitly
   }
 
   try {
-    // attempt server save using multipart (for invoice file)
-    const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0] || null;
-    const files = invoiceFile ? { invoice: invoiceFile } : null;
+    const invoiceFile2 = document.getElementById('rp-invoice-file')?.files?.[0] || null;
+    const files = invoiceFile2 ? { invoice: invoiceFile2 } : null;
     const serverResp = await createServer('rp', rp, files);
+    
     if (serverResp && serverResp.no) {
       const list = readList('rp');
       if (editingRPId) {
@@ -1770,7 +2018,6 @@ async function saveRP() {
       const localId = generateId('rp');
       serverResp.local_id = localId;
       serverResp.id = localId;
-      // server may return invoice URL as invoice (invoice field)
       if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
       list.push(serverResp);
       writeList('rp', list);
@@ -1814,32 +2061,75 @@ async function saveRP() {
   }
 }
 
-function prPrepare() {
-  const next = storage.getItem(KEYS.PR_NEXT);
-  const el = id => document.getElementById(id);
-  if (el('pr-no')) el('pr-no').value = next;
-  if (el('pr-date')) el('pr-date').valueAsDate = new Date();
-  if (el('pr-requester')) el('pr-requester').value = '';
-  if (el('pr-dept')) el('pr-dept').value = '';
-  if (el('pr-needed')) el('pr-needed').value = '';
-  if (el('pr-remarks')) el('pr-remarks').value = '';
-  if (el('pr-requested-by')) el('pr-requested-by').value = '';
-  if (el('pr-checked-by')) el('pr-checked-by').value = '';
-  if (el('pr-recommend-approval')) el('pr-recommend-approval').value = '';
-  if (el('pr-approved-by')) el('pr-approved-by').value = '';
-  if (el('pr-items')) el('pr-items').innerHTML = '';
-  // add first empty item row if helper exists
-  if (typeof prAddItem === 'function') prAddItem();
-  // clear editing state for PR
-  editingPRId = null;
-  storage.setItem('hd_last_module', 'pr');
-}
-
 // ADD: Edit & Delete handlers for Request for Payment
+// async function editRP(id) {
+//   try {
+//     editingRPId = id;
+//     // IMPORTANT: Set hd_last_module so closeForm() knows to return to RP list
+//     storage.setItem('hd_last_module', 'rp');
+//     let rp = await fetchFromServerOrCache('rp', id);
+//     if (!rp) rp = findById('rp', id);
+//     if (!rp) throw new Error('RP not found');
+
+//     document.getElementById("rp-no").value = rp.no || '';
+//     document.getElementById("rp-date").value = rp.date || '';
+//     document.getElementById("rp-payee").value = rp.payee || '';
+//     document.getElementById("rp-tin").value = rp.tin || '';
+//     document.getElementById("rp-amount").value = rp.amount ?? '';
+//     document.getElementById("rp-remarks").value = rp.remarks || '';
+//     document.getElementById("rp-requested-by").value = rp.requested_by || '';
+//     document.getElementById("rp-checked-by").value = rp.checked_by || '';
+//     document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
+//     document.getElementById("rp-approved-by").value = rp.approved_by || '';
+
+//     // radio/checkbox state
+//     document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+//     if (rp.mode_of_payment) {
+//       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
+//     } else {
+//       document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
+//     }
+
+//     if (rp.payment_for) {
+//       const pf = rp.payment_for.split(',').map(s => s.trim());
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
+//       // set "others" text if provided
+//       const others = pf.find(v => v && !['SUPPLIER','MACHINERY','REPAIR & MAINTENANCE','UTILITY','OTHERS'].includes(v.toUpperCase()));
+//       document.getElementById('rp-payment-for-other').value = others || '';
+//     } else {
+//       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
+//       document.getElementById('rp-payment-for-other').value = '';
+//     }
+
+//     // Preview existing invoice (do NOT set rpInvoiceData to the dataURL, only for preview)
+//     if (rp.invoice_image) {
+//       // rp.invoice_image is a data:... URL
+//       const img = document.getElementById('rp-invoice-img');
+//       if (img) { img.src = rp.invoice_image; img.style.display = 'block'; }
+//       rpInvoicePreviewUrl = null;
+//       rpInvoiceData = null;
+//     } else {
+//       const img = document.getElementById('rp-invoice-img');
+//       if (img) { img.src = ''; img.style.display = 'none'; }
+//       rpInvoicePreviewUrl = null;
+//       rpInvoiceData = null;
+//     }
+
+//     // show form
+//     hideAll();
+//     const f = document.getElementById('form-rp');
+//     if (f) f.style.display = 'block';
+//   } catch (err) {
+//     console.error('editRP error:', err);
+//     alert('Error loading Request for Payment for edit: ' + (err.message || err));
+//     editingRPId = null;
+//   }
+// }
+
 async function editRP(id) {
   try {
     editingRPId = id;
-    // IMPORTANT: Set hd_last_module so closeForm() knows to return to RP list
     storage.setItem('hd_last_module', 'rp');
     let rp = await fetchFromServerOrCache('rp', id);
     if (!rp) rp = findById('rp', id);
@@ -1858,6 +2148,7 @@ async function editRP(id) {
 
     // radio/checkbox state
     document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+    
     if (rp.mode_of_payment) {
       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
       document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
@@ -1868,7 +2159,6 @@ async function editRP(id) {
     if (rp.payment_for) {
       const pf = rp.payment_for.split(',').map(s => s.trim());
       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
-      // set "others" text if provided
       const others = pf.find(v => v && !['SUPPLIER','MACHINERY','REPAIR & MAINTENANCE','UTILITY','OTHERS'].includes(v.toUpperCase()));
       document.getElementById('rp-payment-for-other').value = others || '';
     } else {
@@ -1876,9 +2166,20 @@ async function editRP(id) {
       document.getElementById('rp-payment-for-other').value = '';
     }
 
-    // Preview existing invoice (do NOT set rpInvoiceData to the dataURL, only for preview)
+    // VAT checkboxes
+    if (rp.vat === 'VAT') {
+      document.getElementById('rp-vat').checked = true;
+      document.getElementById('rp-non-vat').checked = false;
+    } else if (rp.vat === 'NON-VAT') {
+      document.getElementById('rp-vat').checked = false;
+      document.getElementById('rp-non-vat').checked = true;
+    } else {
+      document.getElementById('rp-vat').checked = false;
+      document.getElementById('rp-non-vat').checked = false;
+    }
+
+    // Preview existing invoice
     if (rp.invoice_image) {
-      // rp.invoice_image is a data:... URL
       const img = document.getElementById('rp-invoice-img');
       if (img) { img.src = rp.invoice_image; img.style.display = 'block'; }
       rpInvoicePreviewUrl = null;
@@ -1890,7 +2191,6 @@ async function editRP(id) {
       rpInvoiceData = null;
     }
 
-    // show form
     hideAll();
     const f = document.getElementById('form-rp');
     if (f) f.style.display = 'block';
@@ -1901,11 +2201,34 @@ async function editRP(id) {
   }
 }
 
+// async function deleteRP(id) {
+//   if (!confirm('Delete this Request for Payment?')) return;
+//   try {
+//     const list = readList('rp');
+//     const idx = list.findIndex(it => Number(it.id) === Number(id));
+//     if (idx === -1) { alert('RP not found'); return; }
+//     const item = list[idx];
+//     try {
+//       if (item && item.server_id) await deleteServer('rp', item.server_id);
+//       else await deleteServer('rp', id);
+//     } catch (e) {
+//       console.warn('Server delete failed, removing local cache anyway', e);
+//     }
+//     list.splice(idx,1);
+//     writeList('rp', list);
+//     alert('Deleted successfully');
+//     renderList('rp');
+//   } catch (err) {
+//     console.error('deleteRP error:', err);
+//     alert('Error deleting Request for Payment');
+//   }
+// }
+
 async function deleteRP(id) {
   if (!confirm('Delete this Request for Payment?')) return;
   try {
     const list = readList('rp');
-    const idx = list.findIndex(it => Number(it.id) === Number(id));
+    const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
     if (idx === -1) { alert('RP not found'); return; }
     const item = list[idx];
     try {
@@ -1924,13 +2247,48 @@ async function deleteRP(id) {
   }
 }
 
+
 // New: fetch and display invoice blob in modal
+// async function viewRPInvoice(id) {
+//   try {
+//     const rp = findById('rp', id);
+//     if (!rp) { alert('RP not found'); return; }
+//     if (!rp.invoice_image) { alert('No invoice attached for this RFP.'); return; }
+//     const url = rp.invoice_image; // data URL
+//     const img = document.getElementById('invoice-modal-img');
+//     const download = document.getElementById('invoice-modal-download');
+//     if (img) img.src = url;
+//     if (download) {
+//       download.href = url;
+//       download.download = rp.invoice_filename || (rp.no || 'invoice') + '.jpg';
+//     }
+//     const modal = document.getElementById('invoice-modal');
+//     if (modal) modal.style.display = 'flex';
+//   } catch (err) {
+//     console.error('viewRPInvoice error:', err);
+//     alert('Unable to load invoice. See console for details.');
+//   }
+// }
+
+// function closeInvoiceModal() {
+//   const modal = document.getElementById('invoice-modal');
+//   const img = document.getElementById('invoice-modal-img');
+//   if (img) {
+//     // revoke blob URL if set
+//     try { URL.revokeObjectURL(img.src); } catch(e){}
+//     img.src = '';
+//   }
+//   const download = document.getElementById('invoice-modal-download');
+//   if (download) download.href = '#';
+//   if (modal) modal.style.display = 'none';
+// }
+
 async function viewRPInvoice(id) {
   try {
     const rp = findById('rp', id);
     if (!rp) { alert('RP not found'); return; }
     if (!rp.invoice_image) { alert('No invoice attached for this RFP.'); return; }
-    const url = rp.invoice_image; // data URL
+    const url = rp.invoice_image;
     const img = document.getElementById('invoice-modal-img');
     const download = document.getElementById('invoice-modal-download');
     if (img) img.src = url;
@@ -1950,7 +2308,6 @@ function closeInvoiceModal() {
   const modal = document.getElementById('invoice-modal');
   const img = document.getElementById('invoice-modal-img');
   if (img) {
-    // revoke blob URL if set
     try { URL.revokeObjectURL(img.src); } catch(e){}
     img.src = '';
   }
@@ -1958,4 +2315,3 @@ function closeInvoiceModal() {
   if (download) download.href = '#';
   if (modal) modal.style.display = 'none';
 }
-
