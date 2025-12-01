@@ -127,6 +127,10 @@ async function createServer(mod, payload, files){
       opts.headers = { 'Content-Type': 'application/json' };
       opts.body = JSON.stringify(payload);
     }
+
+    if (mod === 'rp') {
+      list = (list || []).map(ensureRPComputedFields);
+    }
     const res = await fetch(url, opts);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
@@ -176,6 +180,25 @@ function fileToDataURL(file) {
   });
 }
 
+function ensureRPComputedFields(rp) {
+  if (!rp || typeof rp !== 'object') return rp;
+  if (!rp.invoice_image && rp.invoice_url) {
+    rp.invoice_image = rp.invoice_url;
+  }
+  if (!rp.invoice_filename && typeof rp.invoice_url === 'string') {
+    try {
+      const parts = rp.invoice_url.split('/');
+      rp.invoice_filename = parts.pop() || rp.invoice_filename;
+    } catch (err) {
+      // ignore parsing issues
+    }
+  }
+  if (!rp.status) {
+    rp.status = (rp.invoice_image || rp.invoice_url) ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+  }
+  return rp;
+}
+
 // Wait for images and fonts used inside an element to load before rendering PDF
 async function waitForResources(el, timeout = 5000) {
   if (!el) return true;
@@ -209,9 +232,9 @@ async function fetchFromServerOrCache(mod, id) {
       server.local_id = local.local_id || local.id;
       server.server_id = local.server_id;
       server.id = local.id;
-      return server;
+      return mod === 'rp' ? ensureRPComputedFields(server) : server;
     }
-    return local;
+    return mod === 'rp' ? ensureRPComputedFields(local) : local;
   }
 
   // if local not found, try server directly (id might be a server id)
@@ -219,11 +242,12 @@ async function fetchFromServerOrCache(mod, id) {
   if (serverDirect) {
     // attach server id and leave id as-is (server id)
     serverDirect.server_id = serverDirect.id;
-    return serverDirect;
+    return mod === 'rp' ? ensureRPComputedFields(serverDirect) : serverDirect;
   }
 
   // fallback to local by id
-  return local || null;
+  const fallback = local || null;
+  return mod === 'rp' ? ensureRPComputedFields(fallback) : fallback;
 }
 
 // preview handler for invoice file input (call from onchange)
@@ -1023,6 +1047,7 @@ async function renderList(mod) {
         const cached = [];
         list.forEach(s => {
           const item = Object.assign({}, s);
+          if (mod === 'rp') ensureRPComputedFields(item);
           // move server id into server_id so we can assign a stable local id
           if (item.id !== undefined && item.id !== null) {
             item.server_id = item.id;
@@ -1035,6 +1060,7 @@ async function renderList(mod) {
             const localExisting = readList(mod) || [];
             const match = localExisting.find(l => l.server_id && String(l.server_id) === String(item.server_id));
             if (match) {
+              if (mod === 'rp') ensureRPComputedFields(match);
               // prefer server values when present, but fill missing values from local
               Object.keys(match).forEach(k => {
                 if (k === 'id' || k === 'local_id' || k === 'server_id') return;
@@ -1152,7 +1178,9 @@ async function renderList(mod) {
         </td></tr>`;
       }
       if (mod === 'rp') {
-        html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.payee}</td><td>₱ ${Number(it.amount||0).toFixed(2)}</td><td>${it.status||''}</td><td>
+        const normalized = ensureRPComputedFields(it) || {};
+        const status = normalized.status || '';
+        html += `<tr><td>${normalized.no}</td><td>${normalized.date}</td><td>${normalized.payee}</td><td>₱ ${Number(normalized.amount||0).toFixed(2)}</td><td>${status}</td><td>
           <button class="btn" onclick="downloadRPFromDB(${it.id})">PDF</button>
           <button class="btn" onclick="editRP(${it.id})">Edit</button>
           <button class="btn" onclick="viewRPInvoice(${it.id})">View Invoice</button>
@@ -1441,6 +1469,7 @@ async function downloadRPFromDB(id) {
     let rp = await fetchFromServerOrCache('rp', id);
     if (!rp) rp = findById('rp', id);
     if (!rp) throw new Error('RP not found');
+    rp = ensureRPComputedFields(rp);
 
     // Set values with null checks
     const setVal = (id, value) => {
@@ -1500,8 +1529,9 @@ async function downloadRPFromDB(id) {
 
     // Preview invoice if exists
     const img = document.getElementById('rp-invoice-img');
-    if (rp.invoice_url && img) {
-      img.src = rp.invoice_url; 
+    const invoicePreview = (rp.invoice_image || rp.invoice_url);
+    if (invoicePreview && img) {
+      img.src = invoicePreview; 
       img.style.display = 'block';
     }
 
@@ -2534,10 +2564,10 @@ async function deleteRP(id) {
 
 async function viewRPInvoice(id) {
   try {
-    const rp = findById('rp', id);
+    const rp = ensureRPComputedFields(findById('rp', id));
     if (!rp) { alert('RP not found'); return; }
-    if (!rp.invoice_image) { alert('No invoice attached for this RFP.'); return; }
-    const url = rp.invoice_image;
+    const url = rp.invoice_image || rp.invoice_url;
+    if (!url) { alert('No invoice attached for this RFP.'); return; }
     const img = document.getElementById('invoice-modal-img');
     const download = document.getElementById('invoice-modal-download');
     if (img) img.src = url;
@@ -2598,7 +2628,10 @@ async function updateServer(mod, id, payload, files) {
 // should be visible immediately and server cannot accept updates.
 function renderListLocal(mod) {
   const area = document.getElementById(mod + '-list-area');
-  const list = readList(mod) || [];
+  let list = readList(mod) || [];
+  if (mod === 'rp') {
+    list = list.map(ensureRPComputedFields);
+  }
   if (!list || list.length === 0) {
     area.innerHTML = '<div class="small" style="padding:12px">No records</div>';
     return;
@@ -2620,7 +2653,9 @@ function renderListLocal(mod) {
       </td></tr>`;
     }
     if (mod === 'rp') {
-      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.payee}</td><td>₱ ${Number(it.amount||0).toFixed(2)}</td><td>${it.status||''}</td><td>
+      const normalized = ensureRPComputedFields(it) || {};
+      const status = normalized.status || '';
+      html += `<tr><td>${normalized.no}</td><td>${normalized.date}</td><td>${normalized.payee}</td><td>₱ ${Number(normalized.amount||0).toFixed(2)}</td><td>${status}</td><td>
         <button class="btn" onclick="downloadRPFromDB(${it.id})">PDF</button>
         <button class="btn" onclick="editRP(${it.id})">Edit</button>
         <button class="btn" onclick="viewRPInvoice(${it.id})">View Invoice</button>
