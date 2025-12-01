@@ -499,25 +499,65 @@ async function savePO() {
   };
 
   try {
-    // try saving to server first
+    // If editing an existing local item that has a server_id, attempt PATCH/update
+    let poList = readList('po');
+    if (editingPOId) {
+      const existingIdx = poList.findIndex(it => Number(it.id) === Number(editingPOId));
+      const existing = existingIdx !== -1 ? poList[existingIdx] : null;
+      if (existing && existing.server_id) {
+        // try to update on server first
+        const serverResp = await updateServer('po', existing.server_id, po, null);
+        if (serverResp && (serverResp.no || serverResp.id)) {
+          // update local cache with server response but preserve local id
+          const saved = serverResp;
+          const localId = existing.local_id || existing.id;
+          saved.local_id = localId;
+          saved.id = localId;
+          saved.server_id = existing.server_id;
+          // replace existing
+          if (existingIdx !== -1) poList.splice(existingIdx, 1, saved);
+          else poList.push(saved);
+          writeList('po', poList);
+          editingPOId = null;
+          renderList('po');
+          alert('Purchase Order updated on server and cached locally.');
+          closeForm();
+          return;
+        }
+        // if server update failed (null), save the edit locally and mark pending sync
+        po.local_id = existing.local_id || existing.id;
+        po.id = existing.id;
+        po.server_id = existing.server_id;
+        po._pending_sync = true;
+        if (existingIdx !== -1) poList.splice(existingIdx, 1, po);
+        else poList.push(po);
+        writeList('po', poList);
+        editingPOId = null;
+        renderList('po');
+        alert('Purchase Order updated locally (pending server sync).');
+        closeForm();
+        return;
+      }
+    }
+
+    // try saving to server for new POs (or when no server_id present)
     const serverResp = await createServer('po', po, null);
-    if (serverResp && serverResp.no) {
+    if (serverResp && (serverResp.no || serverResp.id)) {
       // server returned created object
       const saved = serverResp;
-      // use server id if present, otherwise fall back to local id
-      const list = readList('po');
       // remove existing editing entry if present
       if (editingPOId) {
-        const idx = list.findIndex(it => Number(it.id) === Number(editingPOId));
-        if (idx !== -1) list.splice(idx,1);
+        const idx = poList.findIndex(it => Number(it.id) === Number(editingPOId));
+        if (idx !== -1) poList.splice(idx,1);
         editingPOId = null;
       }
       const localId = generateId('po');
       // keep server id in a property `server_id` to avoid id collisions
       saved.local_id = localId;
       saved.id = localId;
-      list.push(saved);
-      writeList('po', list);
+      saved.server_id = serverResp.id || serverResp.server_id || null;
+      poList.push(saved);
+      writeList('po', poList);
       // increment serial
       const cur = storage.getItem(KEYS.PO_NEXT);
       storage.setItem(KEYS.PO_NEXT, incrementSerial(cur));
@@ -528,13 +568,13 @@ async function savePO() {
     }
 
     // fallback: save locally
-    const list = readList('po');
+    // reuse `poList` variable declared above to avoid redeclaration errors
     if (editingPOId) {
-      const idx = list.findIndex(it => Number(it.id) === Number(editingPOId));
+      const idx = poList.findIndex(it => Number(it.id) === Number(editingPOId));
       if (idx === -1) throw new Error('PO not found');
       po.id = editingPOId;
-      list[idx] = po;
-      writeList('po', list);
+      poList[idx] = po;
+      writeList('po', poList);
       editingPOId = null;
       renderList('po');
       alert('Purchase Order updated locally.');
@@ -542,8 +582,8 @@ async function savePO() {
       return;
     }
     po.id = generateId('po');
-    list.push(po);
-    writeList('po', list);
+    poList.push(po);
+    writeList('po', poList);
     const cur2 = storage.getItem(KEYS.PO_NEXT);
     storage.setItem(KEYS.PO_NEXT, incrementSerial(cur2));
     renderList('po');
@@ -983,15 +1023,55 @@ async function renderList(mod) {
         const cached = [];
         list.forEach(s => {
           const item = Object.assign({}, s);
+          // move server id into server_id so we can assign a stable local id
           if (item.id !== undefined && item.id !== null) {
             item.server_id = item.id;
             delete item.id;
           }
-          // assign a local id for caching so UI buttons keep working
-          item.id = generateId(mod);
-          item.local_id = item.id;
+          // If we have a local cached version for the same server record, merge
+          // local-only fields (like signature inputs) into the server item so
+          // user-entered values aren't lost when refreshing from server.
+          try {
+            const localExisting = readList(mod) || [];
+            const match = localExisting.find(l => l.server_id && String(l.server_id) === String(item.server_id));
+            if (match) {
+              // prefer server values when present, but fill missing values from local
+              Object.keys(match).forEach(k => {
+                if (k === 'id' || k === 'local_id' || k === 'server_id') return;
+                if ((item[k] === undefined || item[k] === null || item[k] === '') && (match[k] !== undefined && match[k] !== null && match[k] !== '')) {
+                  item[k] = match[k];
+                }
+              });
+              // reuse the previous local id if present so UI keeps stable ids
+              if (match.local_id) {
+                item.id = match.local_id;
+                item.local_id = match.local_id;
+              } else {
+                item.id = generateId(mod);
+                item.local_id = item.id;
+              }
+            } else {
+              // assign a local id for caching so UI buttons keep working
+              item.id = generateId(mod);
+              item.local_id = item.id;
+            }
+          } catch(e) {
+            item.id = generateId(mod);
+            item.local_id = item.id;
+          }
           cached.push(item);
         });
+        // preserve any locally-edited records that are pending sync so we don't lose them
+        try {
+          const localExisting = readList(mod) || [];
+          localExisting.forEach(l => {
+            if (l._pending_sync) {
+              cached.push(l);
+            }
+          });
+        } catch(e) {
+          // ignore
+        }
         writeList(mod, cached);
         list = cached;
       } catch(e) {
@@ -1573,15 +1653,22 @@ function fillRPFormFromPOAndGRN(po, grn) {
 async function attemptAutoFillRP(poId, grnId) {
   // respect configuration: do not auto-create draft RPs when disabled
   if (!AUTO_CREATE_DRAFT_RP) return;
-  
+  console.log('attemptAutoFillRP called with poId=', poId, 'grnId=', grnId);
   // Try to fetch PO from server or cache
-  let po = await fetchFromServerOrCache('po', poId) || findById('po', poId) || null;
+  let po = null;
+  try {
+    po = await fetchFromServerOrCache('po', poId) || findById('po', poId) || null;
+  } catch (e) { console.warn('attemptAutoFillRP fetch PO error', e); }
   let grn = null;
-  if (grnId) grn = findById('grn', grnId) || null;
-  
+  try {
+    if (grnId) grn = findById('grn', grnId) || null;
+  } catch(e) { console.warn('attemptAutoFillRP find grn error', e); }
+  console.log('attemptAutoFillRP resolved po=', po ? (po.id || po.server_id) : null, 'grn=', grn ? grn.id : null);
   // If we have a PO, create or update a DRAFT RFP (hybrid approach)
   if (po) {
     createOrUpdateDraftRP(po, grn);
+  } else {
+    console.log('attemptAutoFillRP: no PO found for', poId);
   }
 }
 
@@ -1628,6 +1715,11 @@ function createOrUpdateDraftRP(po, grn) {
     existing.items = rpItems;
     if (grn) existing.linked_grn = grn.id;
     existing.status = existing.invoice_image ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
+    // mark pending sync if this draft has no server id so caching won't wipe it
+    if (!existing.server_id) existing._pending_sync = true;
+    console.log('createOrUpdateDraftRP: updated existing RP', existing.id, 'amount=', existing.amount);
+    // draft updated — do not auto-open form; user will open RFP to attach invoice
+    console.log('createOrUpdateDraftRP: draft updated (not opening form) id=', existing.id);
   } else {
     const rp = {
       id: generateId('rp'),
@@ -1648,7 +1740,12 @@ function createOrUpdateDraftRP(po, grn) {
       invoice_filename: null,
       status: 'PENDING_INVOICE'
     };
+    // mark new drafts as pending sync so server caching doesn't remove them
+    rp._pending_sync = true;
     list.push(rp);
+    console.log('createOrUpdateDraftRP: created new RP', rp.id, 'linked_po=', rp.linked_po, 'linked_grn=', rp.linked_grn, 'amount=', rp.amount);
+    // draft created — do not auto-open form; user will open RFP to attach invoice
+    console.log('createOrUpdateDraftRP: draft created (not opening form) id=', rp.id);
   }
   writeList('rp', list);
   // do not increment RP_NEXT until user finalizes; just render updated list
@@ -1802,8 +1899,20 @@ async function savePR() {
   const pr = { no, date, requester, dept, date_needed, remarks, requested_by, checked_by, recommend_approval, approved_by, items };
 
   try {
-    // try server save first
-    const serverResp = await createServer('pr', pr, null);
+    // try server save first (use PATCH when editing an existing server-backed record)
+    let serverResp = null;
+    if (editingPRId) {
+      const existingList = readList('pr');
+      const existing = existingList.find(it => Number(it.id) === Number(editingPRId));
+      if (existing && existing.server_id) {
+        // update remote resource
+        serverResp = await updateServer('pr', existing.server_id, pr, null);
+      } else {
+        serverResp = await createServer('pr', pr, null);
+      }
+    } else {
+      serverResp = await createServer('pr', pr, null);
+    }
     if (serverResp && serverResp.no) {
       const list = readList('pr');
       if (editingPRId) {
@@ -1835,11 +1944,17 @@ async function savePR() {
       const idx = list.findIndex(it => Number(it.id) === Number(editingPRId));
       if (idx === -1) throw new Error('PR not found');
       pr.id = editingPRId;
-      list[idx] = pr;
+      // merge rather than replace so we keep other cached/server metadata
+      const merged = Object.assign({}, list[idx], pr);
+      // server refused update (405) — keep local edits authoritative until sync
+      if (merged.server_id) delete merged.server_id;
+      merged._pending_sync = true;
+      list[idx] = merged;
       writeList('pr', list);
       editingPRId = null;
       alert('Purchase Requisition updated locally!');
-      renderList('pr');
+      // render from local cache to avoid server overriding our edit
+      renderListLocal('pr');
       closeForm();
       return;
     }
@@ -2089,7 +2204,19 @@ async function saveRP() {
   try {
     const invoiceFile2 = document.getElementById('rp-invoice-file')?.files?.[0] || null;
     const files = invoiceFile2 ? { invoice: invoiceFile2 } : null;
-    const serverResp = await createServer('rp', rp, files);
+    // if editing and existing has server_id, PATCH instead of POST to avoid duplicates
+    let serverResp = null;
+    if (editingRPId) {
+      const existingList = readList('rp');
+      const existing = existingList.find(it => Number(it.id) === Number(editingRPId));
+      if (existing && existing.server_id) {
+        serverResp = await updateServer('rp', existing.server_id, rp, files);
+      } else {
+        serverResp = await createServer('rp', rp, files);
+      }
+    } else {
+      serverResp = await createServer('rp', rp, files);
+    }
     
     if (serverResp && serverResp.no) {
       const list = readList('rp');
@@ -2099,6 +2226,21 @@ async function saveRP() {
         editingRPId = null;
       }
       const localId = generateId('rp');
+      // preserve signature/fields if server omitted them
+      serverResp.requested_by = serverResp.requested_by || rp.requested_by;
+      serverResp.checked_by = serverResp.checked_by || rp.checked_by;
+      serverResp.recommend_approval = serverResp.recommend_approval || rp.recommend_approval;
+      serverResp.vat = serverResp.vat || rp.vat;
+      serverResp.remarks = serverResp.remarks || rp.remarks;
+      // determine status based on presence of invoice (server may return invoice_url)
+      if (serverResp.invoice_url || rp.invoice_image) {
+        serverResp.status = 'READY_FOR_PAYMENT';
+      } else {
+        serverResp.status = serverResp.status || rp.status || 'PENDING_INVOICE';
+      }
+      // map invoice_url to invoice_image for local preview and keep filename
+      if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
+      serverResp.invoice_filename = serverResp.invoice_filename || invoice_filename || null;
       serverResp.local_id = localId;
       serverResp.id = localId;
       if (serverResp.invoice_url) serverResp.invoice_image = serverResp.invoice_url;
@@ -2122,11 +2264,16 @@ async function saveRP() {
         rp.invoice_image = existing.invoice_image;
         rp.invoice_filename = existing.invoice_filename;
       }
-      list[idx] = rp;
+      // merge so we don't lose other metadata, but drop server_id since server update failed
+      const merged = Object.assign({}, existing, rp);
+      if (merged.server_id) delete merged.server_id;
+      merged._pending_sync = true;
+      list[idx] = merged;
       writeList('rp', list);
       editingRPId = null;
       alert('Request for Payment updated locally!');
-      renderList('rp');
+      // render local cache to avoid server list replacing our edits
+      renderListLocal('rp');
       closeForm();
       return;
     }
@@ -2330,7 +2477,7 @@ async function deleteRP(id) {
   if (!confirm('Delete this Request for Payment?')) return;
   try {
     const list = readList('rp');
-    const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+    const idx = list.findIndex(it => Number(it.id) === Number(id));
     if (idx === -1) { alert('RP not found'); return; }
     const item = list[idx];
     try {
@@ -2416,4 +2563,85 @@ function closeInvoiceModal() {
   const download = document.getElementById('invoice-modal-download');
   if (download) download.href = '#';
   if (modal) modal.style.display = 'none';
+}
+
+// updateServer: PATCH existing resource on server (supports multipart when files present)
+async function updateServer(mod, id, payload, files) {
+  const url = apiUrl(mod) + id + '/';
+  try {
+    let opts = { method: 'PATCH', credentials: 'same-origin' };
+    if (files) {
+      const fd = new FormData();
+      for (const k in payload) {
+        if (payload[k] !== undefined && payload[k] !== null) fd.append(k, payload[k]);
+      }
+      if (files.invoice) fd.append('invoice', files.invoice, files.invoice.name);
+      opts.body = fd;
+    } else {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(payload);
+    }
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      // If server does not allow PATCH, return null quietly so caller can fallback to local save
+      if (res.status === 405) return null;
+      throw new Error('HTTP ' + res.status);
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn('updateServer failed for', mod, id, err);
+    return null;
+  }
+}
+
+// Render list directly from local cache (skip server fetch). Used when local edits
+// should be visible immediately and server cannot accept updates.
+function renderListLocal(mod) {
+  const area = document.getElementById(mod + '-list-area');
+  const list = readList(mod) || [];
+  if (!list || list.length === 0) {
+    area.innerHTML = '<div class="small" style="padding:12px">No records</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr>';
+  if (mod === 'po') html += '<th>PO No.</th><th>Date</th><th>Supplier</th><th>Dept</th><th>Total</th><th></th>';
+  if (mod === 'rp') html += '<th>RP No.</th><th>Date</th><th>Payee</th><th>Amount</th><th>Status</th><th></th>';
+  if (mod === 'pr') html += '<th>MRF No.</th><th>Date</th><th>Requester</th><th>Dept</th><th></th>';
+  if (mod === 'grn') html += '<th>GRN No.</th><th>Date</th><th>PO</th><th>Received By</th><th></th>';
+  html += '</tr></thead><tbody>';
+
+  list.forEach((it) => {
+    if (mod === 'po') {
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.supplier}</td><td>${it.dept||''}</td><td>₱ ${Number(it.total||0).toFixed(2)}</td><td>
+        <button class="btn" onclick="downloadPOFromDB(${it.id})">PDF</button>
+        <button class="btn" onclick="editPO(${it.id})">Edit</button>
+        <button class="btn danger" onclick="deletePO(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+    if (mod === 'rp') {
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.payee}</td><td>₱ ${Number(it.amount||0).toFixed(2)}</td><td>${it.status||''}</td><td>
+        <button class="btn" onclick="downloadRPFromDB(${it.id})">PDF</button>
+        <button class="btn" onclick="editRP(${it.id})">Edit</button>
+        <button class="btn" onclick="viewRPInvoice(${it.id})">View Invoice</button>
+        <button class="btn danger" onclick="deleteRP(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+    if (mod === 'pr') {
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.requester}</td><td>${it.dept||''}</td><td>
+        <button class="btn" onclick="downloadPRFromDB(${it.id})">PDF</button>
+        <button class="btn" onclick="editPR(${it.id})">Edit</button>
+        <button class="btn danger" onclick="deletePR(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+    if (mod === 'grn') {
+      html += `<tr><td>${it.no}</td><td>${it.date}</td><td>${it.linked_po||''}</td><td>${it.received_by||''}</td><td>
+        <button class="btn" onclick="editGRN(${it.id})">Edit</button>
+        <button class="btn danger" onclick="deleteGRN(${it.id})">Delete</button>
+      </td></tr>`;
+    }
+  });
+
+  html += '</tbody></table>';
+  area.innerHTML = html;
 }

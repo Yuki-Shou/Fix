@@ -60,4 +60,33 @@ def po_detail(request, pk):
     if request.method == 'DELETE':
         po.delete()
         return JsonResponse({'deleted': True})
+    # Support partial/full update via JSON payload (PATCH/PUT)
+    if request.method in ('PUT', 'PATCH'):
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except Exception as e:
+            return JsonResponse({'error': f'Invalid JSON: {str(e)}'}, status=400)
+
+        # update simple fields
+        for field in ('no','date','dept','supplier','tin','address','contact_person','contact_number','total','prepared_by','checked_by','approved_by'):
+            if field in payload:
+                setattr(po, field, payload.get(field))
+        po.save()
+
+        # replace items if provided
+        if 'items' in payload:
+            # remove existing items
+            po.items.all().delete()
+            for it in payload.get('items', []):
+                POItem.objects.create(
+                    po=po,
+                    qty=it.get('qty') or 0,
+                    unit=it.get('unit',''),
+                    description=it.get('description',''),
+                    unit_cost=it.get('unit_cost') or 0,
+                    total=it.get('total') or 0,
+                )
+
+        return JsonResponse(serialize_po(po))
+
     return JsonResponse({'error': 'Method not allowed'}, status=405)

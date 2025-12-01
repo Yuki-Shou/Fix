@@ -54,4 +54,35 @@ def pr_detail(request, pk):
     if request.method == 'DELETE':
         pr.delete()
         return JsonResponse({'deleted': True})
+
+    # Support full update (PUT) and partial update (PATCH) via JSON payload
+    if request.method in ('PUT', 'PATCH'):
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except Exception as e:
+            return JsonResponse({'error': f'Invalid JSON: {str(e)}'}, status=400)
+
+        # update scalar fields
+        for field in ('no', 'date', 'requester', 'dept', 'date_needed', 'remarks', 'requested_by', 'checked_by', 'recommend_approval', 'approved_by'):
+            if field in payload:
+                setattr(pr, field, payload.get(field))
+
+        pr.save()
+
+        # replace items if provided
+        if 'items' in payload:
+            # remove existing items and recreate
+            pr.items.all().delete()
+            for it in payload.get('items', []):
+                PRItem.objects.create(
+                    pr=pr,
+                    stk=it.get('stk',''),
+                    qty=it.get('qty') or 0,
+                    unit=it.get('unit',''),
+                    desc=it.get('desc',''),
+                    remark=it.get('remark',''),
+                )
+
+        return JsonResponse(serialize_pr(pr))
+
     return JsonResponse({'error': 'Method not allowed'}, status=405)
