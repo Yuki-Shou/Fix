@@ -1,0 +1,37 @@
+/* Local Inter font loader
+   NOTE: Replace the placeholder .woff2 files with real Inter font files.
+   To download the official font files you can use the Google Fonts download
+   or install via npm and copy the .woff2 files into this folder.
+   Example npm flow: npm i typeface-inter or npm i @fontsource/inter
+*/
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300;
+  src: url('/static/vendor/inter/Inter-300.woff2') format('woff2');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  src: url('/static/vendor/inter/Inter-400.woff2') format('woff2');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  src: url('/static/vendor/inter/Inter-600.woff2') format('woff2');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  src: url('/static/vendor/inter/Inter-700.woff2') format('woff2');
+  font-display: swap;
+}
+
+/* Fallbacks for browsers that don't support Inter locally */
+:root { --inter-loaded: 1; }
