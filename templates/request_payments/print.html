@@ -1,8 +1,7 @@
 {% load static %}
 <!-- Request for Payment Print Template -->
 <div id="print-rp" style="display:none; padding:10px; font-family:Arial; background:white; width:7.4in; box-sizing:border-box; font-size:10.5px; margin:0 auto;">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
     <!-- Left side content -->
     <div style="display:flex; align-items:center; gap:8px;">
       <img src="{% static 'logo.png' %}" style="width:85px; height:auto;">
@@ -16,71 +15,99 @@
     <img src="{% static 'quirante.png' %}" style="width:85px; height:auto;">
   </div>
 
-  <h2 style="text-align:center; margin:4px 0; font-size:12px; font-weight:bold;">REQUEST FOR PAYMENT</h2>
+  <h2 style="text-align:center; margin:8px 0; font-size:22px; font-weight:bold;">REQUEST FOR PAYMENT</h2>
 
-  <table style="width:100%; font-size:12px; margin-bottom:20px; border-collapse:collapse;">
-    <tr>
-      <td style="width:50%;"><b>Payee:</b> <span id="p_rp_payee"></span></td>
-      <td style="text-align:right;"><b>RP No.:</b> <span id="p_rp_no"></span></td>
-    </tr>
-    <tr>
-      <td><b>Date:</b> <span id="p_rp_date"></span></td>
-      <td></td>
-    </tr>
-    <tr>
-      <td><b>TIN #:</b> <span id="p_rp_tin"></span></td>
-      <td></td>
-    </tr>
-  </table>
-
-  <table style="width:100%; font-size:9px; margin-bottom:15px; border-collapse:collapse;">
-    <tr><td style="width:25%;"><b>ACTION REQUIRED</b></td></tr>
-    <tr><td><span class="rp-action-check">☐</span> URGENT &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="rp-action-check2">☐</span> NON-URGENT</td></tr>
-  </table>
-
-  <table style="width:100%; font-size:12px; margin-bottom:15px; border-collapse:collapse;">
-    <tr><td style="width:25%;"><b>MODE OF PAYMENT</b></td></tr>
-    <tr><td><span class="rp-mode-check">☐</span> CHECK &nbsp;&nbsp;<span class="rp-mode-check">☐</span> CASH &nbsp;&nbsp;<span class="rp-mode-check">☐</span> BANK TRANSFER &nbsp;&nbsp;<span class="rp-mode-check">☐</span> ONLINE (CC, GCASH, PMY)</td></tr>
-  </table>
-
-  <table style="width:100%; font-size:12px; margin-bottom:15px; border-collapse:collapse;">
-    <tr><td style="width:25%;"><b>PAYMENT FOR</b></td></tr>
-    <tr><td><span class="rp-payment-check">☐</span> SUPPLIER &nbsp;&nbsp;<span class="rp-payment-check">☐</span> MACHINERY &nbsp;&nbsp;<span class="rp-payment-check">☐</span> REPAIR & MAINTENANCE &nbsp;&nbsp;<span class="rp-payment-check">☐</span> UTILITY &nbsp;&nbsp;<span class="rp-payment-check">☐</span> OTHERS</td></tr>
-    <tr><td style="border-bottom:1px solid #000; padding:3px;"></td></tr>
-  </table>
-
-  <table style="width:100%; font-size:12px; margin-bottom:15px; border-collapse:collapse;">
-    <tr><td style="width:25%;"><b>VAT:</b></td></tr>
-    <tr><td><span class="rp-vat-check">☐</span> VAT &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="rp-vat-check">☐</span> NON-VAT</td></tr>
-  </table>
-
-  <div style="font-size:9px; margin-bottom:15px;">
-    <b>Amount:</b> <span id="p_rp_amount">₱ 0.00</span>
+  <!-- Header Info with RP No on the right -->
+  <div style="margin-bottom:16px;">
+    <table style="width:100%; font-size:10px; border-collapse:collapse;">
+      <tr>
+        <td style="width:30%; padding:2px 0;"><b>Payee:</b> <span style="border-bottom:1px solid #000; display:inline-block; min-width:200px;"><span id="p_rp_payee"></span></span></td>
+        <td style="text-align:right; padding:2px 0;"><b>RP No.</b> <span style="border-bottom:1px solid #000; display:inline-block; min-width:120px;"><span id="p_rp_no"></span></span></td>
+      </tr>
+      <tr>
+        <td style="padding:2px 0;"><b>Date:</b> <span style="border-bottom:1px solid #000; display:inline-block; min-width:200px;"><span id="p_rp_date"></span></span></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td style="padding:2px 0;"><b>TIN #</b> <span style="border-bottom:1px solid #000; display:inline-block; min-width:200px;"><span id="p_rp_tin"></span></span></td>
+        <td></td>
+      </tr>
+    </table>
   </div>
 
-  <div style="font-size:9px; margin-bottom:15px;">
-    <b>Remarks:</b> <span id="p_rp_remarks"></span>
+  <!-- VAT (MOVED TO TOP) -->
+  <div style="margin-bottom:14px;">
+    <div style="font-size:14px; font-weight:bold; margin-bottom:6px;">VAT:</div>
+    <div style="font-size:14px;">
+      <span class="rp-vat-check">☐</span> VAT &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      <span class="rp-vat-check">☐</span> NON-VAT
+    </div>
   </div>
 
-  <div style="font-size:10px; margin-bottom:20px; font-style:italic;">
+  <!-- ACTION REQUIRED -->
+  <div style="margin-bottom:14px;">
+    <div style="font-size:14px; font-weight:bold; margin-bottom:6px;">ACTION REQUIRED</div>
+    <div style="font-size:14px;">
+      <span class="rp-action-check">☐</span> URGENT &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      <span class="rp-action-check2">☐</span> NON-URGENT
+    </div>
+  </div>
+
+  <!-- MODE OF PAYMENT -->
+  <div style="margin-bottom:14px;">
+    <div style="font-size:14px; font-weight:bold; margin-bottom:6px;">MODE OF PAYMENT</div>
+    <div style="font-size:14px;">
+      <span class="rp-mode-check">☐</span> CHECK &nbsp;&nbsp;
+      <span class="rp-mode-check">☐</span> CASH &nbsp;&nbsp;
+      <span class="rp-mode-check">☐</span> BANK TRANSFER &nbsp;&nbsp;
+      <span class="rp-mode-check">☐</span> ONLINE (CC, GCASH, PMY)
+    </div>
+  </div>
+
+  <!-- PAYMENT FOR -->
+  <div style="margin-bottom:14px;">
+    <div style="font-size:14px; font-weight:bold; margin-bottom:6px;">PAYMENT FOR</div>
+    <div style="font-size:14px; margin-bottom:6px;">
+      <span class="rp-payment-check">☐</span> SUPPLIER &nbsp;&nbsp;
+      <span class="rp-payment-check">☐</span> MACHINERY &nbsp;&nbsp;
+      <span class="rp-payment-check">☐</span> REPAIR & MAINTENANCE &nbsp;&nbsp;
+      <span class="rp-payment-check">☐</span> UTILITY &nbsp;&nbsp;
+      <span class="rp-payment-check">☐</span> OTHERS
+    </div>
+    <div style="border-bottom:1px solid #000; width:100%; height:20px;"></div>
+  </div>
+
+  <!-- Amount -->
+  <div style="font-size:16px; margin-bottom:16px; font-weight:bold;">
+    <b>Amount:</b> <span style="border-bottom:1px solid #000; display:inline-block; min-width:200px; padding:0 4px;"><span id="p_rp_amount">₱ 0.00</span></span>
+  </div>
+
+  <!-- Remarks -->
+  <div style="font-size:14px; margin-bottom:16px;">
+    <b>Remarks:</b> <span style="border-bottom:1px solid #000; display:inline-block; min-width:500px; padding:0 4px;"><span id="p_rp_remarks"></span></span>
+  </div>
+
+  <!-- Note -->
+  <div style="font-size:9px; margin-bottom:30px; font-style:italic;">
     Note: Attached any document as needed
   </div>
 
-  <div style="display:flex; justify-content:space-around; margin-top:30px; font-size:9px;">
-    <div style="text-align:center; width:30%;">
-      <div style="border-top:2px solid #000; width:100%; margin-bottom:5px; height:40px;"></div>
+  <!-- Signatures -->
+  <div style="display:flex; justify-content:space-between; margin-top:40px; font-size:9px;">
+    <div style="text-align:center; width:22%;">
       <div style="font-weight:bold;">Requested By:</div>
-      <div id="p_rp_requested" style="font-size:9px;"></div>
+      <div style="border-top:1px solid #000; width:100%; margin-top:4px; height:10px;"></div>
+      <div style="font-size:8px;"><span id="p_rp_requested"></span></div>
     </div>
-    <div style="text-align:center; width:30%;">
-      <div style="border-top:2px solid #000; width:100%; margin-bottom:5px; height:40px;"></div>
+    <div style="text-align:center; width:22%;">
       <div style="font-weight:bold;">Checked By:</div>
-      <div id="p_rp_checked" style="font-size:9px;"></div>
+      <div style="border-top:1px solid #000; width:100%; margin-top:4px; height:10px;"></div>
+      <div style="font-size:8px;"><span id="p_rp_checked"></span></div>
     </div>
-    <div style="text-align:center; width:30%;">
-      <div style="border-top:2px solid #000; width:100%; margin-bottom:5px; height:40px;"></div>
+    <div style="text-align:center; width:22%;">
       <div style="font-weight:bold;">Recommending Approval:</div>
-      <div id="p_rp_recommend" style="font-size:9px;"></div>
+      <div style="border-top:1px solid #000; width:100%; margin-top:4px; height:10px;"></div>
+      <div style="font-size:8px;"><span id="p_rp_recommend"></span></div>
     </div>
   </div>
 </div>

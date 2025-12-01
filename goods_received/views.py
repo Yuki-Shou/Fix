@@ -2,6 +2,7 @@ from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.forms.models import model_to_dict
+import json
 from .models import GoodsReceivedNote
 
 
@@ -15,9 +16,17 @@ def grn_list(request):
         q = GoodsReceivedNote.objects.all().order_by('-id')
         return JsonResponse([serialize_grn(p) for p in q], safe=False)
     if request.method == 'POST':
-        no = request.POST.get('no','')
-        date = request.POST.get('date')
-        g = GoodsReceivedNote.objects.create(no=no, date=date, linked_po=request.POST.get('linked_po',''), received_by=request.POST.get('received_by',''))
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except Exception as e:
+            return JsonResponse({'error': f'Invalid JSON: {str(e)}'}, status=400)
+        
+        g = GoodsReceivedNote.objects.create(
+            no=payload.get('no',''),
+            date=payload.get('date'),
+            linked_po=payload.get('linked_po',''),
+            received_by=payload.get('received_by','')
+        )
         return JsonResponse(serialize_grn(g), status=201)
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 

@@ -83,6 +83,7 @@ function apiUrl(mod){
   if (mod === 'po') return '/api/purchase_orders/';
   if (mod === 'rp') return '/api/request_payments/';
   if (mod === 'pr') return '/api/purchase_requisitions/';
+  if (mod === 'grn') return '/api/goods_received/';
   return '/api/';
 }
 
@@ -819,7 +820,7 @@ function generateRPPdfFromForm() {
   setText('p_rp_requested', document.getElementById("rp-requested-by")?.value || '');
   setText('p_rp_checked', document.getElementById("rp-checked-by")?.value || '');
   setText('p_rp_recommend', document.getElementById("rp-recommend-approval")?.value || '');
-  setText('p_rp_approved', document.getElementById("rp-approved-by")?.value || '');
+  // "Approved By" was removed from the form — nothing to populate here
 
   // ACTION REQUIRED
   const actionInputs = Array.from(document.querySelectorAll('input[name="rp-action"]'));
@@ -1361,51 +1362,67 @@ async function downloadRPFromDB(id) {
     if (!rp) rp = findById('rp', id);
     if (!rp) throw new Error('RP not found');
 
+    // Set values with null checks
+    const setVal = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value || '';
+    };
+
     // Fill form fields
-    document.getElementById("rp-no").value = rp.no || '';
-    document.getElementById("rp-date").value = rp.date || '';
-    document.getElementById("rp-payee").value = rp.payee || '';
-    document.getElementById("rp-tin").value = rp.tin || '';
-    document.getElementById("rp-amount").value = rp.amount || '';
-    document.getElementById("rp-remarks").value = rp.remarks || '';
-    document.getElementById("rp-requested-by").value = rp.requested_by || '';
-    document.getElementById("rp-checked-by").value = rp.checked_by || '';
-    document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
-    document.getElementById("rp-approved-by").value = rp.approved_by || '';
+    setVal('rp-no', rp.no);
+    setVal('rp-date', rp.date);
+    setVal('rp-payee', rp.payee);
+    setVal('rp-tin', rp.tin);
+    setVal('rp-amount', rp.amount);
+    setVal('rp-remarks', rp.remarks);
+    setVal('rp-requested-by', rp.requested_by);
+    setVal('rp-checked-by', rp.checked_by);
+    setVal('rp-recommend-approval', rp.recommend_approval);
 
     // Restore checkbox/radio states
-    document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+    document.querySelectorAll('input[name="rp-action"]').forEach(el => {
+      el.checked = (el.value === rp.action_required);
+    });
 
     if (rp.mode_of_payment) {
       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
-      document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
+      document.querySelectorAll('.rp-mode').forEach(el => {
+        el.checked = modes.includes(el.value);
+      });
     } else {
       document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
     }
 
     if (rp.payment_for) {
       const pf = rp.payment_for.split(',').map(s => s.trim());
-      document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
+      document.querySelectorAll('.rp-payment-for').forEach(el => {
+        el.checked = pf.includes(el.value);
+      });
     } else {
       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
     }
 
     // Restore VAT selection
-    if (rp.vat === 'VAT') {
-      document.getElementById('rp-vat').checked = true;
-      document.getElementById('rp-non-vat').checked = false;
-    } else if (rp.vat === 'NON-VAT') {
-      document.getElementById('rp-vat').checked = false;
-      document.getElementById('rp-non-vat').checked = true;
-    } else {
-      document.getElementById('rp-vat').checked = false;
-      document.getElementById('rp-non-vat').checked = false;
+    const vatEl = document.getElementById('rp-vat');
+    const nonVatEl = document.getElementById('rp-non-vat');
+    if (vatEl && nonVatEl) {
+      if (rp.vat === 'VAT') {
+        vatEl.checked = true;
+        nonVatEl.checked = false;
+      } else if (rp.vat === 'NON-VAT') {
+        vatEl.checked = false;
+        nonVatEl.checked = true;
+      } else {
+        vatEl.checked = false;
+        nonVatEl.checked = false;
+      }
     }
 
     // Preview invoice if exists
-    if (rp.invoice_url) {
-      const img = document.getElementById('rp-invoice-img');
-      if (img) { img.src = rp.invoice_url; img.style.display = 'block'; }
+    const img = document.getElementById('rp-invoice-img');
+    if (rp.invoice_url && img) {
+      img.src = rp.invoice_url; 
+      img.style.display = 'block';
     }
 
     generateRPPdfFromForm();
@@ -1477,25 +1494,31 @@ function grnAddItem(desc='', unit='', poQty=0, receivedQty=0) {
 function grnLinkedPOChanged() {
   const poId = document.getElementById('grn-linked-po')?.value;
   if (!poId) return;
-  const po = findById('po', poId);
-  if (!po) return;
-  const tbody = document.getElementById('grn-items');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-  (po.items || []).forEach(it => {
-    grnAddItem(it.description || it.desc || '', it.unit || '', it.qty || 0, it.qty || 0);
-  });
-  // After populating GRN items, try to auto-fill RP based on this PO + GRN
-  // find a GRN record that matches this PO (if any) and use it; otherwise use transient form data
-  const grns = readList('grn') || [];
-  const linkedGrn = grns.find(g => String(g.linked_po) === String(poId));
-  if (linkedGrn) {
-    // auto open RP form populated from PO + this GRN
-    attemptAutoFillRP(poId, linkedGrn.id);
-  } else {
-    // use transient grn form data to compute payable and fill RP without saving GRN
-    attemptAutoFillRP(poId, null);
-  }
+  
+  // Async wrapper to fetch PO and populate items
+  (async () => {
+    let po = await fetchFromServerOrCache('po', poId) || findById('po', poId);
+    if (!po) return;
+    
+    const tbody = document.getElementById('grn-items');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    (po.items || []).forEach(it => {
+      grnAddItem(it.description || it.desc || '', it.unit || '', it.qty || 0, it.qty || 0);
+    });
+    
+    // After populating GRN items, try to auto-fill RP based on this PO + GRN
+    // find a GRN record that matches this PO (if any) and use it; otherwise use transient form data
+    const grns = readList('grn') || [];
+    const linkedGrn = grns.find(g => String(g.linked_po) === String(poId));
+    if (linkedGrn) {
+      // auto open RP form populated from PO + this GRN
+      await attemptAutoFillRP(poId, linkedGrn.id);
+    } else {
+      // use transient grn form data to compute payable and fill RP without saving GRN
+      await attemptAutoFillRP(poId, null);
+    }
+  })();
 }
 
 // Compute payable amount using PO and GRN items. Matches GRN items to PO items by description or index.
@@ -1546,12 +1569,16 @@ function fillRPFormFromPOAndGRN(po, grn) {
 }
 
 // Attempt auto-fill RP: given poId and optional grnId (may be null for transient form)
-function attemptAutoFillRP(poId, grnId) {
+// Now async to allow server fetch of PO if needed
+async function attemptAutoFillRP(poId, grnId) {
   // respect configuration: do not auto-create draft RPs when disabled
   if (!AUTO_CREATE_DRAFT_RP) return;
-  const po = findById('po', poId) || null;
+  
+  // Try to fetch PO from server or cache
+  let po = await fetchFromServerOrCache('po', poId) || findById('po', poId) || null;
   let grn = null;
   if (grnId) grn = findById('grn', grnId) || null;
+  
   // If we have a PO, create or update a DRAFT RFP (hybrid approach)
   if (po) {
     createOrUpdateDraftRP(po, grn);
@@ -1566,12 +1593,39 @@ function createOrUpdateDraftRP(po, grn) {
 
   const amount = computePayableFromPOAndGRN(po, grn);
   const now = new Date().toISOString().slice(0,10);
+  
+  // Build items list from GRN if available, otherwise from PO
+  let rpItems = [];
+  if (grn && grn.items) {
+    rpItems = grn.items.map(gItem => {
+      const poItem = (po.items || []).find(p => (p.description || p.desc || '').toLowerCase() === (gItem.description || '').toLowerCase());
+      return {
+        description: gItem.description || '',
+        unit: gItem.unit || '',
+        poQty: poItem ? (poItem.qty || 0) : 0,
+        receivedQty: gItem.receivedQty || 0,
+        unitCost: poItem ? (poItem.unit_cost || 0) : 0,
+        lineTotal: (gItem.receivedQty || 0) * (poItem ? (poItem.unit_cost || 0) : 0)
+      };
+    });
+  } else if (po && po.items) {
+    rpItems = (po.items || []).map(pItem => ({
+      description: pItem.description || pItem.desc || '',
+      unit: pItem.unit || '',
+      poQty: pItem.qty || 0,
+      receivedQty: pItem.qty || 0,
+      unitCost: pItem.unit_cost || 0,
+      lineTotal: (pItem.qty || 0) * (pItem.unit_cost || 0)
+    }));
+  }
+  
   if (existing) {
     existing.payee = po.supplier || existing.payee;
     existing.tin = po.tin || existing.tin;
     existing.amount = amount;
     existing.remarks = `Auto-draft from PO ${po.no}${grn && grn.no ? ' / GRN ' + grn.no : ''}`;
     existing.linked_po = po.id;
+    existing.items = rpItems;
     if (grn) existing.linked_grn = grn.id;
     existing.status = existing.invoice_image ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
   } else {
@@ -1589,6 +1643,7 @@ function createOrUpdateDraftRP(po, grn) {
       requested_by: '', checked_by: '', recommend_approval: '', approved_by: '',
       linked_po: po.id,
       linked_grn: grn ? grn.id : null,
+      items: rpItems,
       invoice_image: null,
       invoice_filename: null,
       status: 'PENDING_INVOICE'
@@ -1634,6 +1689,10 @@ async function saveGRN() {
       writeList('grn', list);
       renderList('grn');
       alert('GRN saved to server and cached locally.');
+      // Auto-fill RP form if linked_po exists
+      if (linked_po) {
+        await attemptAutoFillRP(linked_po, serverResp.id);
+      }
       closeForm();
       return;
     }
@@ -1647,6 +1706,10 @@ async function saveGRN() {
       editingGRNId = null;
       renderList('grn');
       alert('GRN updated locally.');
+      // Auto-fill RP form if linked_po exists
+      if (linked_po) {
+        await attemptAutoFillRP(linked_po, grn.id);
+      }
       closeForm();
       return;
     }
@@ -1655,6 +1718,10 @@ async function saveGRN() {
     writeList('grn', list);
     renderList('grn');
     alert('GRN saved locally!');
+    // Auto-fill RP form if linked_po exists
+    if (linked_po) {
+      await attemptAutoFillRP(linked_po, grn.id);
+    }
     closeForm();
   } catch (err) {
     console.error('Error saving GRN:', err);
@@ -1819,15 +1886,21 @@ function rpPrepare() {
   document.querySelectorAll('input[name="rp-action"]').forEach(r => r.checked = false);
   document.querySelectorAll('.rp-mode').forEach(c => c.checked = false);
   document.querySelectorAll('.rp-payment-for').forEach(c => c.checked = false);
-  document.getElementById('rp-payment-for-other').value = '';
-  if (document.getElementById('rp-vat')) document.getElementById('rp-vat').checked = false;
-  if (document.getElementById('rp-non-vat')) document.getElementById('rp-non-vat').checked = false;
+  
+  const paymentOtherEl = document.getElementById('rp-payment-for-other');
+  if (paymentOtherEl) paymentOtherEl.value = '';
+  
+  const vatEl = document.getElementById('rp-vat');
+  const nonVatEl = document.getElementById('rp-non-vat');
+  if (vatEl) vatEl.checked = false;
+  if (nonVatEl) nonVatEl.checked = false;
+  
   document.getElementById('rp-amount').value = '';
   document.getElementById('rp-remarks').value = '';
   document.getElementById('rp-requested-by').value = '';
   document.getElementById('rp-checked-by').value = '';
   document.getElementById('rp-recommend-approval').value = '';
-  document.getElementById('rp-approved-by').value = '';
+  
   clearRPInvoice();
   storage.setItem('hd_last_module', 'rp');
 }
@@ -1971,7 +2044,7 @@ async function saveRP() {
   const requested_by = document.getElementById('rp-requested-by').value;
   const checked_by = document.getElementById('rp-checked-by').value;
   const recommend_approval = document.getElementById('rp-recommend-approval').value;
-  const approved_by = document.getElementById('rp-approved-by').value;
+  // Note: "Approved By" field was removed from the form — skip reading it
 
   // ensure rpInvoiceData populated if user selected a file but didn't trigger preview
   const invoiceFile = document.getElementById('rp-invoice-file')?.files?.[0];
@@ -1993,8 +2066,18 @@ async function saveRP() {
   // Build payload
   const rp = {
     no, date, payee, tin, action_required, mode_of_payment, payment_for,
-    amount, remarks, requested_by, checked_by, recommend_approval, approved_by, vat
+    amount, remarks, requested_by, checked_by, recommend_approval, vat
   };
+  
+  // Preserve items if editing
+  if (editingRPId) {
+    const list = readList('rp');
+    const idx = list.findIndex(it => Number(it.id) === Number(editingRPId));
+    const existing = idx !== -1 ? list[idx] : null;
+    if (existing && existing.items) {
+      rp.items = existing.items;
+    }
+  }
   
   rp.status = (rpInvoiceData && typeof rpInvoiceData === 'string') ? 'READY_FOR_PAYMENT' : 'PENDING_INVOICE';
 
@@ -2135,58 +2218,76 @@ async function editRP(id) {
     if (!rp) rp = findById('rp', id);
     if (!rp) throw new Error('RP not found');
 
-    document.getElementById("rp-no").value = rp.no || '';
-    document.getElementById("rp-date").value = rp.date || '';
-    document.getElementById("rp-payee").value = rp.payee || '';
-    document.getElementById("rp-tin").value = rp.tin || '';
-    document.getElementById("rp-amount").value = rp.amount ?? '';
-    document.getElementById("rp-remarks").value = rp.remarks || '';
-    document.getElementById("rp-requested-by").value = rp.requested_by || '';
-    document.getElementById("rp-checked-by").value = rp.checked_by || '';
-    document.getElementById("rp-recommend-approval").value = rp.recommend_approval || '';
-    document.getElementById("rp-approved-by").value = rp.approved_by || '';
+    // Set values with null checks
+    const setVal = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value || '';
+      else console.warn(`Element ${id} not found`);
+    };
+
+    setVal('rp-no', rp.no);
+    setVal('rp-date', rp.date);
+    setVal('rp-payee', rp.payee);
+    setVal('rp-tin', rp.tin);
+    setVal('rp-amount', rp.amount ?? '');
+    setVal('rp-remarks', rp.remarks);
+    setVal('rp-requested-by', rp.requested_by);
+    setVal('rp-checked-by', rp.checked_by);
+    setVal('rp-recommend-approval', rp.recommend_approval);
+    setVal('rp-payment-for-other', '');
 
     // radio/checkbox state
-    document.querySelectorAll('input[name="rp-action"]').forEach(el => el.checked = (el.value === rp.action_required));
+    document.querySelectorAll('input[name="rp-action"]').forEach(el => {
+      el.checked = (el.value === rp.action_required);
+    });
     
     if (rp.mode_of_payment) {
       const modes = rp.mode_of_payment.split(',').map(s => s.trim());
-      document.querySelectorAll('.rp-mode').forEach(el => el.checked = modes.includes(el.value));
+      document.querySelectorAll('.rp-mode').forEach(el => {
+        el.checked = modes.includes(el.value);
+      });
     } else {
       document.querySelectorAll('.rp-mode').forEach(el => el.checked = false);
     }
 
     if (rp.payment_for) {
       const pf = rp.payment_for.split(',').map(s => s.trim());
-      document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = pf.includes(el.value));
+      document.querySelectorAll('.rp-payment-for').forEach(el => {
+        el.checked = pf.includes(el.value);
+      });
       const others = pf.find(v => v && !['SUPPLIER','MACHINERY','REPAIR & MAINTENANCE','UTILITY','OTHERS'].includes(v.toUpperCase()));
-      document.getElementById('rp-payment-for-other').value = others || '';
+      setVal('rp-payment-for-other', others);
     } else {
       document.querySelectorAll('.rp-payment-for').forEach(el => el.checked = false);
-      document.getElementById('rp-payment-for-other').value = '';
+      setVal('rp-payment-for-other', '');
     }
 
     // VAT checkboxes
-    if (rp.vat === 'VAT') {
-      document.getElementById('rp-vat').checked = true;
-      document.getElementById('rp-non-vat').checked = false;
-    } else if (rp.vat === 'NON-VAT') {
-      document.getElementById('rp-vat').checked = false;
-      document.getElementById('rp-non-vat').checked = true;
-    } else {
-      document.getElementById('rp-vat').checked = false;
-      document.getElementById('rp-non-vat').checked = false;
+    const vatEl = document.getElementById('rp-vat');
+    const nonVatEl = document.getElementById('rp-non-vat');
+    if (vatEl && nonVatEl) {
+      if (rp.vat === 'VAT') {
+        vatEl.checked = true;
+        nonVatEl.checked = false;
+      } else if (rp.vat === 'NON-VAT') {
+        vatEl.checked = false;
+        nonVatEl.checked = true;
+      } else {
+        vatEl.checked = false;
+        nonVatEl.checked = false;
+      }
     }
 
     // Preview existing invoice
-    if (rp.invoice_image) {
-      const img = document.getElementById('rp-invoice-img');
-      if (img) { img.src = rp.invoice_image; img.style.display = 'block'; }
+    const img = document.getElementById('rp-invoice-img');
+    if (rp.invoice_image && img) {
+      img.src = rp.invoice_image; 
+      img.style.display = 'block';
       rpInvoicePreviewUrl = null;
       rpInvoiceData = null;
-    } else {
-      const img = document.getElementById('rp-invoice-img');
-      if (img) { img.src = ''; img.style.display = 'none'; }
+    } else if (img) {
+      img.src = ''; 
+      img.style.display = 'none';
       rpInvoicePreviewUrl = null;
       rpInvoiceData = null;
     }
@@ -2196,6 +2297,7 @@ async function editRP(id) {
     if (f) f.style.display = 'block';
   } catch (err) {
     console.error('editRP error:', err);
+    console.error('Error stack:', err.stack);
     alert('Error loading Request for Payment for edit: ' + (err.message || err));
     editingRPId = null;
   }
