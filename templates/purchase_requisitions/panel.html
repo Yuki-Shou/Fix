@@ -1,0 +1,24 @@
+{% load static %}
+<section id="panel-pr" class="card panel" style="display:none">
+  <div class="panel-top">
+    <button class="link" onclick="goHome()">← Back</button>
+    <div class="right">
+      <button class="btn" onclick="openCreate('pr')">+ New Purchase Requisition</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <select id="pr-filter" onchange="renderList('pr')">
+      <option value="all">All</option>
+      <option value="weekly">Weekly</option>
+      <option value="monthly">Monthly</option>
+      <option value="yearly">Yearly</option>
+    </select>
+    <input type="date" id="pr-from" onchange="renderList('pr')">
+    <input type="date" id="pr-to" onchange="renderList('pr')">
+    <input placeholder="Search requester or No" id="pr-search" oninput="renderList('pr')">
+    <input placeholder="Search department" id="pr-dept-search" oninput="renderList('pr')">
+  </div>
+
+  <div id="pr-list-area"></div>
+</section>

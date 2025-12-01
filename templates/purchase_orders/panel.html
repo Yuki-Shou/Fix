@@ -1,0 +1,28 @@
+{% load static %}
+<!-- LIST PANEL -->
+<section id="panel-po" class="card panel" style="display:none">
+  <div class="panel-top">
+    <button class="link" onclick="goHome()">← Back</button>
+    <div class="right">
+      <button class="btn" onclick="openCreate('po')">+ New PO</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <select id="po-filter" onchange="renderList('po')">
+      <option value="all">All</option>
+      <option value="weekly">Weekly</option>
+      <option value="monthly">Monthly</option>
+      <option value="yearly">Yearly</option>
+    </select>
+
+    <input id="po-from" type="date" onchange="renderList('po')" placeholder="From">
+    <input id="po-to" type="date" onchange="renderList('po')" placeholder="To">
+
+    <input id="po-search" type="search" oninput="renderList('po')" placeholder="Search supplier or PO No" class="filter-wide">
+
+    <input id="po-dept-search" type="search" oninput="renderList('po')" placeholder="Search department">
+  </div>
+
+  <div id="po-list-area"></div>
+</section>

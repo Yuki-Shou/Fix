@@ -1,0 +1,103 @@
+{% load static %}
+<!-- Purchase Order Form -->
+<section id="form-po" class="card form-card" style="display:none">
+  <div class="panel-top">
+    <h3>Purchase Order</h3>
+    <button class="btn primary" onclick="closeForm()">Back</button>
+  </div>
+
+  <div class="form-body">
+    <div class="form-group">
+      <label>PO No.:</label>
+      <input type="text" id="po-no" readonly>
+    </div>
+
+    <div class="form-group">
+      <label>Date:</label>
+      <input type="date" id="po-date">
+    </div>
+
+    <div class="form-group">
+      <label>Department:</label>
+      <input id="po-dept" placeholder="e.g., Housekeeping">
+    </div>
+
+    <div class="form-group">
+      <label>Linked PR (optional):</label>
+      <select id="po-linked-pr" onchange="poLinkedPRChanged()">
+        <option value="">-- Select PR --</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Supplier's Name:</label>
+      <input id="po-supplier">
+    </div>
+
+    <div class="form-group">
+      <label>TIN #:</label>
+      <input id="po-tin">
+    </div>
+
+    <div class="form-group">
+      <label>Address:</label>
+      <input id="po-address">
+    </div>
+
+    <div class="form-group">
+      <label>Contact Person:</label>
+      <input id="po-contact-person">
+    </div>
+
+    <div class="form-group">
+      <label>Contact Number:</label>
+      <input id="po-contact-number">
+    </div>
+
+    <h4 style="margin-top:16px; margin-bottom:8px; font-weight:600;">Items</h4>
+
+    <table class="items-table" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Qty</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Unit</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Item Description</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Unit Cost</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Amount</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Del. Date</th>
+          <th style="border:1px solid #ccc; padding:8px; width:60px;"></th>
+        </tr>
+      </thead>
+      <tbody id="po-items"></tbody>
+    </table>
+
+    <button class="btn secondary" onclick="poAddItem()" style="margin-bottom:12px;">+ Add Item</button>
+
+    <div style="background:#f9f9f9; padding:12px; border-radius:4px; margin-bottom:12px;">
+      <div style="text-align:right; font-size:14px; font-weight:600;">
+        TOTAL: <span id="po-total">₱ 0.00</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Prepared By:</label>
+      <input id="po-prepared-by">
+    </div>
+
+    <div class="form-group">
+      <label>Checked By:</label>
+      <input id="po-checked-by">
+    </div>
+
+    <div class="form-group">
+      <label>Approved By:</label>
+      <input id="po-approved-by">
+    </div>
+
+    <div class="form-actions">
+      <button class="btn primary" onclick="savePO()">Save</button>
+      <button class="btn secondary" onclick="generatePOPdfFromForm()">Preview PDF</button>
+      <button class="btn secondary" onclick="closeForm()">Cancel</button>
+    </div>
+  </div>
+</section>

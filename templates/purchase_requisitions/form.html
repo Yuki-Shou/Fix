@@ -1,0 +1,79 @@
+{% load static %}
+<!-- Purchase Requisition Form -->
+<section id="form-pr" class="card form-card" style="display:none">
+  <div class="panel-top">
+    <h3>Purchase Requisition</h3>
+    <button class="btn primary" onclick="closeForm()">Back</button>
+  </div>
+
+  <div class="form-body">
+    <div class="form-group">
+      <label>MRF No.:</label>
+      <input type="text" id="pr-no" readonly>
+    </div>
+
+    <div class="form-group">
+      <label>Date:</label>
+      <input type="date" id="pr-date">
+    </div>
+
+    <div class="form-group">
+      <label>Requisitioner:</label>
+      <input id="pr-requester">
+    </div>
+
+    <div class="form-group">
+      <label>Department:</label>
+      <input id="pr-dept">
+    </div>
+
+    <div class="form-group">
+      <label>Date Needed:</label>
+      <input type="date" id="pr-needed">
+    </div>
+
+    <h4 style="margin-top:16px; margin-bottom:8px; font-weight:600;">Items</h4>
+
+    <table class="items-table" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">STK No.</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Qty</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Unit</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Item Description</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Remarks</th>
+          <th style="border:1px solid #ccc; padding:8px; width:60px;"></th>
+        </tr>
+      </thead>
+      <tbody id="pr-items"></tbody>
+    </table>
+
+    <button class="btn secondary" onclick="prAddItem()" style="margin-bottom:12px;">+ Add Item</button>
+
+    <div class="form-group">
+      <label>Requested By:</label>
+      <input type="text" id="pr-requested-by">
+    </div>
+
+    <div class="form-group">
+      <label>Checked By:</label>
+      <input type="text" id="pr-checked-by">
+    </div>
+
+    <div class="form-group">
+      <label>Recommending Approval:</label>
+      <input type="text" id="pr-recommend-approval">
+    </div>
+
+    <div class="form-group">
+      <label>Approved By:</label>
+      <input type="text" id="pr-approved-by">
+    </div>
+
+    <div class="form-actions">
+      <button class="btn primary" onclick="savePR()">Save</button>
+      <button class="btn secondary" onclick="generatePRPdfFromForm()">Preview PDF</button>
+      <button class="btn secondary" onclick="closeForm()">Cancel</button>
+    </div>
+  </div>
+</section>

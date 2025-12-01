@@ -1,0 +1,55 @@
+{% load static %}
+<!-- Goods Received Note Form -->
+<section id="form-grn" class="card form-card" style="display:none">
+  <div class="panel-top">
+    <h3>Goods Received Note (GRN)</h3>
+    <button class="btn primary" onclick="closeForm()">Back</button>
+  </div>
+
+  <div class="form-body">
+    <div class="form-group">
+      <label>GRN No.:</label>
+      <input type="text" id="grn-no" readonly>
+    </div>
+
+    <div class="form-group">
+      <label>Date:</label>
+      <input type="date" id="grn-date">
+    </div>
+
+    <div class="form-group">
+      <label>Linked PO:</label>
+      <select id="grn-linked-po" onchange="grnLinkedPOChanged()">
+        <option value="">-- Select PO --</option>
+      </select>
+    </div>
+
+    <h4 style="margin-top:16px; margin-bottom:8px; font-weight:600;">Items Received</h4>
+
+    <table class="items-table" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="border:1px solid #ccc; padding:8px; text-align:left; width:40px;">#</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Item Description</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Unit</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">PO Qty</th>
+          <th style="border:1px solid #ccc; padding:8px; text-align:left;">Received Qty</th>
+          <th style="border:1px solid #ccc; padding:8px; width:60px;"></th>
+        </tr>
+      </thead>
+      <tbody id="grn-items"></tbody>
+    </table>
+
+    <button class="btn secondary" onclick="grnAddItem()" style="margin-bottom:12px;">+ Add Received Item</button>
+
+    <div class="form-group">
+      <label>Received By:</label>
+      <input id="grn-received-by">
+    </div>
+
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveGRN()">Save</button>
+      <button class="btn secondary" onclick="closeForm()">Cancel</button>
+    </div>
+  </div>
+</section>
